@@ -1,0 +1,90 @@
+//
+// Siimple - minimal css framework for flat and clean websites
+// Under the MIT LICENSE.
+// License:    https://github.com/siimple/siimple/blob/master/LICENSE.md
+// Repository: https://github.com/siimple
+// Website:    https://www.siimple.xyz
+//
+@import "../_variables.scss";
+@import "../_functions.scss";
+
+//Table variables
+$siimple-table-width: 100%;
+$siimple-table-cell-padding: 10px;
+
+//Table class
+.siimple-table {
+    display: table;
+    width: $siimple-table-width;
+    font-size: $siimple-default-text-size;
+    //font-family: $siimple-default-text-font;
+    color: $siimple-default-text-color;
+    border-collapse: collapse;
+    border-width: 0px;
+    margin-bottom: $siimple-default-margin-bottom;
+    //Table row
+    &-row {
+        display: table-row;
+        transition: all 0.3s;
+        border-bottom: 2px solid $siimple-default-white;
+        &:hover {
+            //background-color: siimple-default-color("light");
+        }
+        &:last-child {
+            border-bottom: 0px;
+        }
+    }
+    //Table cell
+    &-cell {
+        display: table-cell;
+        //position: relative;
+        line-height: $siimple-default-text-line;
+        padding: $siimple-table-cell-padding;
+        white-space: nowrap;
+        overflow: hidden;
+        transition: background-color 0.3s;
+    }
+    //Table with border
+    &--border &-cell:not(:last-child) {
+        border-right: 2px solid $siimple-default-white;
+    }
+    //Table header
+    &-header {
+        display: table-header-group;
+        border-bottom: 3px solid $siimple-default-white !important;
+        font-weight: bold;
+    }
+    &-header &-row:first-child &-cell:first-child {
+        border-top-left-radius: $siimple-default-border-radius;
+    }
+    &-header &-row:first-child &-cell:last-child {
+        border-top-right-radius: $siimple-default-border-radius;
+    }
+    &-header &-cell {
+        background-color: siimple-default-color("light", "dark") !important;
+        border-bottom-right-radius: 0px !important;
+        border-bottom-left-radius: 0px !important;
+    }
+    //Table body
+    &-body {
+        display: table-row-group;
+    }
+    &-body &-cell {
+        background-color: rgba(siimple-default-color("light", "light"), 0.4);
+    }
+    &-body &-row:last-child &-cell:first-child {
+        border-bottom-left-radius: $siimple-default-border-radius;
+    }
+    &-body &-row:last-child &-cell:last-child {
+        border-bottom-right-radius: $siimple-default-border-radius;
+    }
+    //Striped table
+    &--striped &-body &-row:nth-child(odd) &-cell {
+        background-color: rgba(siimple-default-color("light", "light"), 1.0);
+    }
+    //Hovered table
+    &--hover &-body &-row:hover &-cell {
+        background-color: siimple-default-color("light") !important;
+    }
+}
+
