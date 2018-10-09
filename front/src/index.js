@@ -1,18 +1,18 @@
 import './index.scss';
 
 import xs from 'xstream';
-import debounce from 'xstream/extra/debounce'
 import {run} from '@cycle/run';
 import {makeDOMDriver, div, input, p, h1} from '@cycle/dom';
 import {makeHTTPDriver} from '@cycle/http';
 import {timeDriver} from '@cycle/time';
+
+import Item from './item';
 
 function intent(sources) {
   return {
     responseSearch: sources.HTTP.select('search')
       .flatten()
       .map(res => res.body)
-      .debug()
   };
 }
 

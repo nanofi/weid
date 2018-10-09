@@ -23,8 +23,13 @@ struct Query {
 }
 
 #[get("/")]
-fn index(static_dir: State<StaticDir>) -> Option<NamedFile> {
+fn index() -> Option<NamedFile> {
     NamedFile::open(Path::new("index.html")).ok()
+}
+
+#[get("/favicon.ico")]
+fn favicon() -> Option<NamedFile> {
+    NamedFile::open(Path::new("favicon.ico")).ok()
 }
 
 #[get("/assets/<path..>")]
