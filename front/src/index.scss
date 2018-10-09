@@ -1,2 +1,7 @@
 
 @import "siimple/all";
+
+.search {
+  @extend .siimple-input;
+  @extend .siimple-input--fluid;
+}
