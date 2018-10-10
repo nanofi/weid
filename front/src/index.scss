@@ -5,3 +5,82 @@
   @extend .siimple-input;
   @extend .siimple-input--fluid;
 }
+
+.article-list {
+  display: block;
+  width: 100%;
+  margin: {
+      bottom: $siimple-default-margin-bottom;
+  }
+  color: $siimple-default-text-color;
+  font-size: $siimple-default-text-size;
+  line-height: $siimple-default-text-line;
+  padding-inline-start: 0;
+  margin-block-end: 0;
+  list-style-type: none;
+}
+
+.article-item {
+  display: flex;
+  margin-bottom: 8px;
+}
+
+.article-content {
+  order: 1;
+  flex-grow: 1;
+  flex-basis: auto;
+  background-color: siimple-default-color("light", "light");
+  transition: all 0.3s ease;
+  text-decoration: none;
+  color: $siimple-default-text-color;
+  padding: $siimple-list-item-padding;
+
+  border-top-left-radius: $siimple-default-border-radius;
+  border-bottom-left-radius: $siimple-default-border-radius;
+
+  &:hover {
+    background-color: siimple-default-color("light", "base");
+    cursor: pointer;
+  }
+}
+
+.article-title {
+  font-size: 16px;
+  font-weight: bold;
+  line-height: 24px;
+  text-decoration: none;
+  color: $siimple-default-text-color;
+}
+
+.article-authors {
+  .article-author {
+    @extend .siimple--text-italic;
+
+    &::after {
+      content: ", ";
+    }
+
+    &:nth-last-child(2)::after {
+      content: ", and ";
+    }
+
+    &:last-child::after {
+      content: "";
+    }
+  }
+}
+
+.article-delete {
+  @extend .siimple-btn;
+  @extend .siimple-btn--error;
+
+  display: flex;
+  order: 2;
+  flex-basis: 50px;
+  height: auto;
+  justify-content: center;
+  align-items: center;
+
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
