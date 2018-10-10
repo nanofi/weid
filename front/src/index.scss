@@ -5,11 +5,30 @@
 .search {
   @extend .siimple-input;
   @extend .siimple-input--fluid;
+  margin-bottom: 10px;
 }
 
 .actions {
+  @extend .siimple-content;
+  @extend .siimple-content--large;
+
+  position: fixed;
+  z-index: 1;
+  left: 50%;
+  top: 100px;
+  height: auto;
+  width: 580px;
+  padding: 0 40px;
+  margin-left: -320px;
+
+  overflow: auto;
+  border-radius: $siimple-default-border-radius;
+  background-color: white;
+  box-shadow: 0px 0px 6px 3px siimple-default-color("light", "base");
+}
+
+.add-form {
   @extend .siimple-form;
-  margin-bottom: 20px;
 
   h1 {
     @extend .siimple-form-title;
@@ -27,12 +46,36 @@
   }
 }
 
+.add-file-label {
+  @extend .siimple-input;
+  @extend .siimple-input--fluid;
+
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  &:hover {
+    background-color: siimple-default-color("light", "base");
+    cursor: pointer;
+  }
+
+  & > input[type=file] {
+    display: none;
+  }
+}
+
 .add {
   @extend .siimple-btn;
   @extend .siimple-btn--fluid;
   @extend .siimple-btn--primary;
 }
 
+.add-button {
+  @extend .siimple-btn;
+  @extend .siimple-btn--fluid;
+  @extend .siimple-btn--primary;
+  margin-bottom: 10px;
+}
 
 .article-list {
   display: block;

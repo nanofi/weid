@@ -7,7 +7,7 @@ import {makeHTTPDriver} from '@cycle/http';
 import {timeDriver} from '@cycle/time';
 
 import ArticleList from './article_list';
-
+import AddForm from './add_form';
 
 function main(sources) {
   const search = sources.DOM
@@ -29,23 +29,25 @@ function main(sources) {
     }))
   });
 
+  const addForm = AddForm({
+    DOM: sources.DOM,
+    props: xs.of(null)
+  })
+
+  const state = xs.combine(articleList.DOM, addForm.DOM).map(([articleListDom, addFormDom]) => ({
+    addForm: addFormDom,
+    articleList: articleListDom,
+  }));
+
   return {
-    DOM: articleList.DOM.map(articleListDom => {
+    DOM: state.map(({articleList, addForm}) => {
       return div([
         div('.actions', [
-          h1('Add new article'),
-          div('.add-field', [
-            h2('Title'),
-            input('.add-title', {attrs: {type: 'text', placeholder: 'Title'}}),
-          ]),
-          div('.add-field', [
-            h2('Authors (comma separated)'),
-            input('.add-authors', {attrs: {type: 'text', placeholder: 'Authors'}}),
-          ]),
-          div('.add', 'Add'),
+          addForm
         ]),
         input('.search', {attrs: {type: 'text', placeholder: 'Search...'}}),
-        articleListDom
+        div('.add-button', 'Add new article'),
+        articleList
       ]);
     }),
     HTTP: search.map(search => ({
