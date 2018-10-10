@@ -2,7 +2,7 @@ import './index.scss';
 
 import xs from 'xstream';
 import {run} from '@cycle/run';
-import {makeDOMDriver, div, input, p, h1} from '@cycle/dom';
+import {makeDOMDriver, div, input, p, h1, h2} from '@cycle/dom';
 import {makeHTTPDriver} from '@cycle/http';
 import {timeDriver} from '@cycle/time';
 
@@ -32,6 +32,18 @@ function main(sources) {
   return {
     DOM: articleList.DOM.map(articleListDom => {
       return div([
+        div('.actions', [
+          h1('Add new article'),
+          div('.add-field', [
+            h2('Title'),
+            input('.add-title', {attrs: {type: 'text', placeholder: 'Title'}}),
+          ]),
+          div('.add-field', [
+            h2('Authors (comma separated)'),
+            input('.add-authors', {attrs: {type: 'text', placeholder: 'Authors'}}),
+          ]),
+          div('.add', 'Add'),
+        ]),
         input('.search', {attrs: {type: 'text', placeholder: 'Search...'}}),
         articleListDom
       ]);

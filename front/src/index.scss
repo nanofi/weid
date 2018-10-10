@@ -1,10 +1,38 @@
 
 @import "siimple/all";
 
+
 .search {
   @extend .siimple-input;
   @extend .siimple-input--fluid;
 }
+
+.actions {
+  @extend .siimple-form;
+  margin-bottom: 20px;
+
+  h1 {
+    @extend .siimple-form-title;
+  }
+
+  .add-field {
+    @extend .siimple-form-field;
+    h2 {
+      @extend .siimple-form-field-label;
+    }
+    input {
+      @extend .siimple-input;
+      @extend .siimple-input--fluid;
+    }
+  }
+}
+
+.add {
+  @extend .siimple-btn;
+  @extend .siimple-btn--fluid;
+  @extend .siimple-btn--primary;
+}
+
 
 .article-list {
   display: block;
@@ -28,7 +56,6 @@
 .article-content {
   order: 1;
   flex-grow: 1;
-  flex-basis: auto;
   background-color: siimple-default-color("light", "light");
   transition: all 0.3s ease;
   text-decoration: none;
@@ -60,6 +87,14 @@
       content: ", ";
     }
 
+    &:only-child::after {
+      content: "";
+    }
+
+    &:first-child:nth-last-child(2)::after {
+      content: " and ";
+    }
+
     &:nth-last-child(2)::after {
       content: ", and ";
     }
@@ -76,7 +111,6 @@
 
   display: flex;
   order: 2;
-  flex-basis: 50px;
   height: auto;
   justify-content: center;
   align-items: center;

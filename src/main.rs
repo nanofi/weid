@@ -53,6 +53,7 @@ fn search(query: Query) -> Json<Vec<Article>> {
         Article { id: 4, title: "Awesome title 4".to_string(), authors: vec!["First author 4".to_string(), "second author 4".to_string()]},
         Article { id: 5, title: "Awesome title 5".to_string(), authors: vec!["First author 5".to_string(), "second author 5".to_string()]},
         Article { id: 6, title: "Awesome title 6".to_string(), authors: vec!["First author 6".to_string(), "second author 6".to_string()]},
+        Article { id: 7, title: query.q, authors: vec!["First author".to_string()]},
     ];
     Json(results)
 }
