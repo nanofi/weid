@@ -12,6 +12,7 @@
   @extend .siimple-content;
   @extend .siimple-content--large;
 
+  display: none;
   position: fixed;
   z-index: 1;
   left: 50%;
@@ -25,6 +26,16 @@
   border-radius: $siimple-default-border-radius;
   background-color: white;
   box-shadow: 0px 0px 6px 3px siimple-default-color("light", "base");
+
+  .siimple-close {
+    position: absolute !important;
+    right: 5px !important;
+    top: 5px !important;
+  }
+}
+
+.actions.show {
+  display: block;
 }
 
 .add-form {

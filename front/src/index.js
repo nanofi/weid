@@ -41,8 +41,9 @@ function main(sources) {
 
   return {
     DOM: state.map(({articleList, addForm}) => {
-      return div([
+      return div('.main', [
         div('.actions', [
+          div('.siimple-close'),
           addForm
         ]),
         input('.search', {attrs: {type: 'text', placeholder: 'Search...'}}),
