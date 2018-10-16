@@ -21,6 +21,16 @@ function main(sources) {
     .flatten()
     .map(res => res.body)
     .startWith([]);
+  const addClick = sources.DOM
+    .select('.add-button')
+    .events('click')
+    .mapTo(true);
+  const closeClick = sources.DOM
+    .select('.actions-close')
+    .events('click')
+    .mapTo(false)
+  const actionsShow = xs.merge(addClick, closeClick)
+    .startWith(false);
 
   const articleList = ArticleList({
     DOM: sources.DOM,
@@ -31,30 +41,39 @@ function main(sources) {
 
   const addForm = AddForm({
     DOM: sources.DOM,
-    props: xs.of(null)
-  })
+    HTTP: sources.HTTP,
+  });
 
-  const state = xs.combine(articleList.DOM, addForm.DOM).map(([articleListDom, addFormDom]) => ({
+  const searchRequest = xs.combine(search, addForm.response.startWith({}))
+    .map(([search, add]) => search)
+    .map(search => ({
+    url: `/search?q=${encodeURI(search)}`,
+    category: 'search'
+  }));
+
+  const requests = xs.merge(searchRequest, addForm.HTTP);
+
+  const state = xs.combine(articleList.DOM, addForm.DOM, actionsShow).map(([articleListDom, addFormDom, actionsShow]) => ({
     addForm: addFormDom,
     articleList: articleListDom,
+    actionsShow: actionsShow,
   }));
 
   return {
-    DOM: state.map(({articleList, addForm}) => {
+    DOM: state.map(state => {
+      const actionClass = state.actionsShow ? '.actions.actions-show' : '.actions';
+
       return div('.main', [
-        div('.actions', [
-          div('.siimple-close'),
-          addForm
+        div(actionClass, [
+          div('.actions-close.siimple-close'),
+          state.addForm
         ]),
         input('.search', {attrs: {type: 'text', placeholder: 'Search...'}}),
         div('.add-button', 'Add new article'),
-        articleList
+        state.articleList
       ]);
     }),
-    HTTP: search.map(search => ({
-      url: `/search?q=${encodeURI(search)}`,
-      category: 'search'
-    }))
+    HTTP: requests,
   };
 }
 

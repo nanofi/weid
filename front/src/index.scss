@@ -27,6 +27,10 @@
   background-color: white;
   box-shadow: 0px 0px 6px 3px siimple-default-color("light", "base");
 
+  &-show {
+    display: block;
+  }
+
   .siimple-close {
     position: absolute !important;
     right: 5px !important;
@@ -54,31 +58,44 @@
       @extend .siimple-input;
       @extend .siimple-input--fluid;
     }
+    &.disabled {
+      input:placeholder-shown, &::-webkit-input-placeholder {
+        color: siimple-default-color("light", "dark");
+      }
+      input, .add-file-label {
+        color: siimple-default-color("light", "dark");
+        background-color: siimple-default-color("light", "dark");
+        cursor: not-allowed;
+        pointer-events : none;
+      }
+    }
   }
-}
+  .add-file-label {
+    @extend .siimple-input;
+    @extend .siimple-input--fluid;
 
-.add-file-label {
-  @extend .siimple-input;
-  @extend .siimple-input--fluid;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+    &:hover {
+      background-color: siimple-default-color("light", "base");
+      cursor: pointer;
+    }
 
-  &:hover {
-    background-color: siimple-default-color("light", "base");
-    cursor: pointer;
+    & > input[type=file] {
+      display: none;
+    }
   }
+  .add {
+    @extend .siimple-btn;
+    @extend .siimple-btn--fluid;
+    @extend .siimple-btn--primary;
 
-  & > input[type=file] {
-    display: none;
+    &.disabled {
+      @extend .siimple-btn--disabled;
+    }
   }
-}
-
-.add {
-  @extend .siimple-btn;
-  @extend .siimple-btn--fluid;
-  @extend .siimple-btn--primary;
 }
 
 .add-button {

@@ -5,6 +5,8 @@
 extern crate rocket;
 #[macro_use] extern crate rocket_contrib;
 #[macro_use] extern crate serde_derive;
+extern crate url;
+extern crate url_serde;
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -15,11 +17,21 @@ use rocket::response::NamedFile;
 
 use rocket_contrib::Json;
 
+use url::Url;
+
 struct StaticDir(String);
 
 #[derive(FromForm)]
 struct Query {
     q: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct AddValues {
+    title: String,
+    authors: Vec<String>,
+    #[serde(with = "url_serde")]
+    file: Url,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -58,9 +70,14 @@ fn search(query: Query) -> Json<Vec<Article>> {
     Json(results)
 }
 
+#[post("/add", format = "application/json", data = "<values>")]
+fn add(values: Json<AddValues>) -> Json<Article> {
+    Json(Article { id: 1, title: "Test title".to_string(), authors: vec![]})
+}
+
 fn main() {
     rocket::ignite()
-      .mount("/", routes![index, assets, search])
+      .mount("/", routes![index, assets, search, add])
       .attach(AdHoc::on_attach(|rocket| {
          let static_dir = rocket.config()
            .get_str("static_dir")
