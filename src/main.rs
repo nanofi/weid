@@ -7,17 +7,22 @@ extern crate rocket;
 #[macro_use] extern crate serde_derive;
 extern crate url;
 extern crate url_serde;
+extern crate uuid;
 
 use std::path::Path;
 use std::path::PathBuf;
 
 use rocket::fairing::AdHoc;
 use rocket::State;
-use rocket::response::NamedFile;
+use rocket::request::Request;
+use rocket::response::{self, Response, Responder, NamedFile};
+use rocket::response::status::NotFound;
 
 use rocket_contrib::Json;
+use rocket_contrib::UUID;
 
 use url::Url;
+use uuid::Uuid;
 
 struct StaticDir(String);
 
@@ -36,9 +41,24 @@ struct AddValues {
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Article {
-    id: u64,
+    id: Uuid,
     title: String,
     authors: Vec<String>,
+}
+
+struct InlineFile(NamedFile);
+
+impl<'r> Responder<'r> for InlineFile {
+    fn respond_to(self, _: &Request) -> response::Result<'r> {
+        let disposition = match self.0.path().file_name() {
+            Some(name) => format!("inline; filename={0}", name.to_os_string().into_string().unwrap()),
+            _ => "inline".to_string()
+        };
+        Response::build()
+            .raw_header("Content-Disposition", disposition)
+            .streamed_body(self.0)
+            .ok()
+    }
 }
 
 #[get("/")]
@@ -59,25 +79,36 @@ fn assets(path: PathBuf, static_dir: State<StaticDir>) -> Option<NamedFile> {
 #[get("/search?<query>")]
 fn search(query: Query) -> Json<Vec<Article>> {
     let results = vec![
-        Article { id: 1, title: "Awesome title 1".to_string(), authors: vec!["First author 1".to_string(), "second author 1".to_string()]},
-        Article { id: 2, title: "Awesome title 2".to_string(), authors: vec!["First author 2".to_string(), "second author 2".to_string()]},
-        Article { id: 3, title: "Awesome title 3".to_string(), authors: vec!["First author 3".to_string(), "second author 3".to_string()]},
-        Article { id: 4, title: "Awesome title 4".to_string(), authors: vec!["First author 4".to_string(), "second author 4".to_string()]},
-        Article { id: 5, title: "Awesome title 5".to_string(), authors: vec!["First author 5".to_string(), "second author 5".to_string()]},
-        Article { id: 6, title: "Awesome title 6".to_string(), authors: vec!["First author 6".to_string(), "second author 6".to_string()]},
-        Article { id: 7, title: query.q, authors: vec!["First author".to_string()]},
+        Article { id: Uuid::new_v4(), title: "Awesome title 1".to_string(), authors: vec!["First author 1".to_string(), "second author 1".to_string()]},
+        Article { id: Uuid::new_v4(), title: "Awesome title 2".to_string(), authors: vec!["First author 2".to_string(), "second author 2".to_string()]},
+        Article { id: Uuid::new_v4(), title: "Awesome title 3".to_string(), authors: vec!["First author 3".to_string(), "second author 3".to_string()]},
+        Article { id: Uuid::new_v4(), title: "Awesome title 4".to_string(), authors: vec!["First author 4".to_string(), "second author 4".to_string()]},
+        Article { id: Uuid::new_v4(), title: "Awesome title 5".to_string(), authors: vec!["First author 5".to_string(), "second author 5".to_string()]},
+        Article { id: Uuid::new_v4(), title: "Awesome title 6".to_string(), authors: vec!["First author 6".to_string(), "second author 6".to_string()]},
+        Article { id: Uuid::new_v4(), title: query.q, authors: vec!["First author".to_string()]},
     ];
     Json(results)
 }
 
 #[post("/add", format = "application/json", data = "<values>")]
 fn add(values: Json<AddValues>) -> Json<Article> {
-    Json(Article { id: 1, title: "Test title".to_string(), authors: vec![]})
+    Json(Article { id: Uuid::new_v4(), title: "Test title".to_string(), authors: vec![]})
+}
+
+#[delete("/delete/<id>")]
+fn delete(id: UUID) -> Json<Article> {
+    Json(Article { id: Uuid::new_v4(), title: "Test title".to_string(), authors: vec![]})
+}
+
+#[get("/view/<id>")]
+fn view(id: UUID) -> Result<InlineFile, NotFound<String>> {
+    let file = NamedFile::open("none").map_err(|_| NotFound(format!("Bad id: {}", id)))?;
+    Ok(InlineFile(file))
 }
 
 fn main() {
     rocket::ignite()
-      .mount("/", routes![index, assets, search, add])
+      .mount("/", routes![index, assets, search, add, delete, view])
       .attach(AdHoc::on_attach(|rocket| {
          let static_dir = rocket.config()
            .get_str("static_dir")

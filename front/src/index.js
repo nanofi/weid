@@ -28,12 +28,13 @@ function main(sources) {
   const closeClick = sources.DOM
     .select('.actions-close')
     .events('click')
-    .mapTo(false)
+    .mapTo(false);
   const actionsShow = xs.merge(addClick, closeClick)
     .startWith(false);
 
   const articleList = ArticleList({
     DOM: sources.DOM,
+    HTTP: sources.HTTP,
     props: searchResponse.map(response => ({
       articles: response
     }))
@@ -44,14 +45,14 @@ function main(sources) {
     HTTP: sources.HTTP,
   });
 
-  const searchRequest = xs.combine(search, addForm.response.startWith({}))
-    .map(([search, add]) => search)
+  const searchRequest = xs.combine(search, articleList.response.startWith({}), addForm.response.startWith({}))
+    .map(([search, _1, _2]) => search)
     .map(search => ({
     url: `/search?q=${encodeURI(search)}`,
     category: 'search'
   }));
 
-  const requests = xs.merge(searchRequest, addForm.HTTP);
+  const requests = xs.merge(searchRequest, articleList.HTTP, addForm.HTTP);
 
   const state = xs.combine(articleList.DOM, addForm.DOM, actionsShow).map(([articleListDom, addFormDom, actionsShow]) => ({
     addForm: addFormDom,
