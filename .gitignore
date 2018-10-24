@@ -1,6 +1,7 @@
 /target
 /assets
 **/*.rs.bk
+/db
 
 
 # Created by https://www.gitignore.io/api/vim,node,rust,emacs,linux,macos,windows

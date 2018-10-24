@@ -5,12 +5,17 @@
 extern crate rocket;
 #[macro_use] extern crate rocket_contrib;
 #[macro_use] extern crate serde_derive;
+extern crate serde;
 extern crate url;
 extern crate url_serde;
 extern crate uuid;
+#[macro_use] extern crate error_chain;
+extern crate memmap;
 
-use std::path::Path;
-use std::path::PathBuf;
+mod db;
+
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use rocket::fairing::AdHoc;
 use rocket::State;
@@ -18,13 +23,15 @@ use rocket::request::Request;
 use rocket::response::{self, Response, Responder, NamedFile};
 use rocket::response::status::NotFound;
 
-use rocket_contrib::Json;
-use rocket_contrib::UUID;
+use rocket_contrib::{Json, UUID};
 
 use url::Url;
-use uuid::Uuid;
 
-struct StaticDir(String);
+use self::db::{Article, DB};
+
+struct ExtraOptions {
+    static_dir: String,
+}
 
 #[derive(FromForm)]
 struct Query {
@@ -37,13 +44,6 @@ struct AddValues {
     authors: Vec<String>,
     #[serde(with = "url_serde")]
     file: Url,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct Article {
-    id: Uuid,
-    title: String,
-    authors: Vec<String>,
 }
 
 struct InlineFile(NamedFile);
@@ -72,32 +72,24 @@ fn favicon() -> Option<NamedFile> {
 }
 
 #[get("/assets/<path..>")]
-fn assets(path: PathBuf, static_dir: State<StaticDir>) -> Option<NamedFile> {
-    NamedFile::open(Path::new(&static_dir.0).join(path)).ok()
+fn assets(path: PathBuf, options: State<ExtraOptions>) -> Option<NamedFile> {
+    NamedFile::open(Path::new(&options.static_dir).join(path)).ok()
 }
 
 #[get("/search?<query>")]
 fn search(query: Query) -> Json<Vec<Article>> {
-    let results = vec![
-        Article { id: Uuid::new_v4(), title: "Awesome title 1".to_string(), authors: vec!["First author 1".to_string(), "second author 1".to_string()]},
-        Article { id: Uuid::new_v4(), title: "Awesome title 2".to_string(), authors: vec!["First author 2".to_string(), "second author 2".to_string()]},
-        Article { id: Uuid::new_v4(), title: "Awesome title 3".to_string(), authors: vec!["First author 3".to_string(), "second author 3".to_string()]},
-        Article { id: Uuid::new_v4(), title: "Awesome title 4".to_string(), authors: vec!["First author 4".to_string(), "second author 4".to_string()]},
-        Article { id: Uuid::new_v4(), title: "Awesome title 5".to_string(), authors: vec!["First author 5".to_string(), "second author 5".to_string()]},
-        Article { id: Uuid::new_v4(), title: "Awesome title 6".to_string(), authors: vec!["First author 6".to_string(), "second author 6".to_string()]},
-        Article { id: Uuid::new_v4(), title: query.q, authors: vec!["First author".to_string()]},
-    ];
+    let results = vec![];
     Json(results)
 }
 
 #[post("/add", format = "application/json", data = "<values>")]
 fn add(values: Json<AddValues>) -> Json<Article> {
-    Json(Article { id: Uuid::new_v4(), title: "Test title".to_string(), authors: vec![]})
+    Json(Article::nil())
 }
 
 #[delete("/delete/<id>")]
 fn delete(id: UUID) -> Json<Article> {
-    Json(Article { id: Uuid::new_v4(), title: "Test title".to_string(), authors: vec![]})
+    Json(Article::nil())
 }
 
 #[get("/view/<id>")]
@@ -108,13 +100,20 @@ fn view(id: UUID) -> Result<InlineFile, NotFound<String>> {
 
 fn main() {
     rocket::ignite()
-      .mount("/", routes![index, assets, search, add, delete, view])
-      .attach(AdHoc::on_attach(|rocket| {
-         let static_dir = rocket.config()
-           .get_str("static_dir")
-           .unwrap_or("static/")
-           .to_string();
-         Ok(rocket.manage(StaticDir(static_dir)))
-      }))
-      .launch();
+        .mount("/", routes![index, assets, search, add, delete, view])
+        .attach(AdHoc::on_attach(|rocket| {
+            let extra_options = ExtraOptions {
+                static_dir: rocket.config().get_str("static_dir").unwrap_or("static/").to_owned(),
+            };
+          Ok(rocket.manage(extra_options))
+        }))
+        .attach(AdHoc::on_attach(|rocket| {
+            let path = Path::new(rocket.config().get_str("db_path").unwrap_or("db/"));
+            if let Ok(db) = DB::open(path) {
+                Ok(rocket.manage(Arc::new(db)))
+            } else {
+                Err(rocket)
+            }
+        }))
+        .launch();
 }
