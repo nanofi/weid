@@ -1,17 +1,19 @@
 
 use std::path::{Path, PathBuf};
 use std::fs::{File, OpenOptions};
+use std::io::{Read, Write};
 use std::ops::{Index, IndexMut};
-use std::marker::PhantomData;
 
 use serde::ser::{Serialize, Serializer, SerializeSeq};
 use uuid::Uuid;
-use memmap::{MmapMut};
+
+use crate::mmap::{MmappedStruct};
 
 mod errors {
     error_chain! {
         foreign_links {
             Io(std::io::Error);
+            Mmap(crate::mmap::Error);
         }
     }
 }
@@ -161,40 +163,45 @@ impl Article {
     }
 }
 
-
-struct TypedMmapMut<T> {
-    mmap: MmapMut,
-    mtype: PhantomData<T>,
-}
-
-struct MmappedFile<T> {
-    file: File,
-    memory_type: PhantomData<T>,
-}
-
-impl<T> MmappedFile<T> {
-    fn open_with_len<P: AsRef<Path>>(path: P, len: usize) -> Result<Self> {
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .truncate(false)
-            .create(true)
-            .open(path)?;
-        file.set_len((len * std::mem::size_of::<T>()) as u64)?;
-        Ok(Self {
-            file: file,
-            memory_type: PhantomData,
-        })
-    }
-}
-
-struct Metadata {
+#[derive(Default)]
+pub struct Metadata {
     articles: u64,
+}
+
+impl Metadata {
+    fn init<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
+        if path.as_ref().exists() {
+            self.read(path)?;
+        } else {
+            *self = Default::default();
+            self.write(path)?;
+        }
+        Ok(())
+    }
+    
+    fn read<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
+        let mut file = OpenOptions::new()
+            .read(true)
+            .open(&path)?;
+        let mut buffer = unsafe { std::slice::from_raw_parts_mut((self as *mut Self) as *mut u8, std::mem::size_of::<Self>()) };
+        file.read(&mut buffer)?;
+        Ok(())
+    }
+
+    fn write<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(&path)?;
+        let mut buffer = unsafe { std::slice::from_raw_parts((self as *const Self) as *const u8, std::mem::size_of::<Self>()) };
+        file.write(&buffer)?;
+        Ok(())
+    }
 }
 
 pub struct DB {
     path: PathBuf,
-    metadata: MmappedFile<Metadata>,
+    metadata: Metadata,
 }
 
 impl DB {
@@ -221,17 +228,27 @@ impl DB {
         Self::touch(path.as_ref().join(Self::ID_INDEX_FILE))?;
         Self::touch(path.as_ref().join(Self::SEARCH_INDEX_FILE))?;
 
-        Ok(DB {
+        let mut db = unsafe { DB {
             path: path.as_ref().to_owned(),
-            metadata: MmappedFile::open_with_len(path.as_ref().join(Self::METADATA_FILE), 1)?
-        })
+            metadata: std::mem::uninitialized() ,
+        } };
+
+        db.metadata.init(path.as_ref().join(Self::METADATA_FILE))?;
+
+        Ok(db)
     }
 
     fn add_data(&self, article: &Article) -> Result<()> {
-        Ok(())
+        unimplemented!();
     }
 
     fn remove_data(&self, index: usize) -> Result<()> {
-        Ok(())
+        unimplemented!();
+    }
+}
+
+impl Drop for DB {
+    fn drop(&mut self) {
+        self.metadata.write(self.path.join(Self::METADATA_FILE)).unwrap();
     }
 }
