@@ -1,4 +1,4 @@
-docker run --rm  `
+docker run -it --rm  `
  -v ${PWD}:/home/rust/src `
  -v cargo-registry:/home/rust/.cargo/registry `
  -p 8000:8000 `

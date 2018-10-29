@@ -1,14 +1,14 @@
 #![feature(plugin)]
 #![feature(custom_derive)]
 #![feature(try_blocks)]
+#![feature(slice_index_methods)]
 
-extern crate actix;
+#[macro_use] extern crate actix;
 extern crate actix_web;
 extern crate serde;
 extern crate serde_json;
 #[macro_use] extern crate serde_derive;
-extern crate url;
-extern crate url_serde;
+extern crate data_url;
 extern crate uuid;
 #[macro_use] extern crate error_chain;
 extern crate toml;
@@ -17,23 +17,27 @@ extern crate simplelog;
 extern crate num_cpus;
 
 mod db;
-mod mmap;
+mod config;
 
 use std::path::{Path, PathBuf};
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::{Read};
-use std::net::ToSocketAddrs;
 use std::sync::Arc;
 
-use url::Url;
-use serde::{Deserialize, Deserializer};
+use uuid::Uuid;
+use data_url::DataUrl;
 
-use actix_web::{server, http, error::Result as ActixResult, App, HttpRequest, Json, Query, fs::{NamedFile, StaticFiles}, middleware::{Logger}};
+use actix::{Addr};
+use actix_web::{self as web, server, http};
 
-use self::db::{Article, DB};
+use self::config::Config;
+use self::db::{Article, Db, DbOperators};
 
 mod errors {
     error_chain! {
+        links {
+            Db(crate::db::Error, crate::db::ErrorKind);
+        }
         foreign_links {
             Io(std::io::Error);
             Toml(toml::de::Error);
@@ -43,131 +47,65 @@ mod errors {
 }
 use self::errors::*;
 
-#[derive(Deserialize, Debug)]
-struct Config {
-    #[serde(default = "Config::default_log")]
-    #[serde(deserialize_with = "Config::deserialize_log_level")]
-    log: simplelog::LevelFilter,
-    #[serde(default = "Config::default_port")]
-    port: u16,
-    #[serde(default = "Config::default_address")]
-    address: String,
-    #[serde(default = "Config::default_workers")]
-    workers: usize,
-    #[serde(default = "Config::default_db_path")]
-    db_path: PathBuf,
-}
-impl Config {
-    fn default_log() -> simplelog::LevelFilter { simplelog::LevelFilter::Off }
-    fn default_port() -> u16 { 80 }
-    fn default_address() -> String { "localhost".to_owned() }
-    fn default_workers() -> usize { num_cpus::get() }
-    fn default_db_path() -> PathBuf { PathBuf::from("db/") }
-
-    fn deserialize_log_level<'de, D>(deserializer: D) -> std::result::Result<simplelog::LevelFilter, D::Error>
-    where D: Deserializer<'de> {
-        let val = String::deserialize(deserializer)?.to_lowercase();
-        let level = match val.as_str() {
-            "error" => simplelog::LevelFilter::Error,
-            "warn" => simplelog::LevelFilter::Warn,
-            "info" => simplelog::LevelFilter::Info,
-            "debug" => simplelog::LevelFilter::Debug,
-            "trace" => simplelog::LevelFilter::Trace,
-            _ => simplelog::LevelFilter::Off,
-        };
-        Ok(level)
-    }
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            log: simplelog::LevelFilter::Off,
-            port: Self::default_port(),
-            address: Self::default_address(),
-            workers: Self::default_workers(),
-            db_path: Self::default_db_path(),
-        }
-    }
-}
-
 struct AppState {
-    config: Config,
+    db: Addr<Db>,
 }
 
-#[derive(Deserialize)]
-struct Search {
-    q: String,
+type Request = web::HttpRequest<Arc<AppState>>;
+type Response = web::HttpResponse;
+type WebResult<T> = web::error::Result<T>;
+
+fn index(_ : web::Path<()>) -> WebResult<web::fs::NamedFile> {
+    Ok(web::fs::NamedFile::open(Path::new("index.html"))?)
 }
 
-type Request = HttpRequest<Arc<AppState>>;
-
-fn index(_ : &Request) -> ActixResult<NamedFile> {
-    Ok(NamedFile::open(Path::new("index.html"))?)
+fn favicon(_ : web::Path<()>) -> WebResult<web::fs::NamedFile> {
+    Ok(web::fs::NamedFile::open(Path::new("favicon.ico"))?)
 }
 
-fn favicon(_ : &Request) -> ActixResult<NamedFile> {
-    Ok(NamedFile::open(Path::new("favicon.ico"))?)
+fn search(req: &Request) -> WebResult<web::Json<Vec<Article>>> {
+    let state = req.state();
+    let query = req.query().get("q").map(|v| (*v).as_ref()).unwrap_or("");
+
+    let results = state.db.search(query)?;
+
+    Ok(web::Json(results))
 }
 
-fn search(_: Query<Search>) -> Json<Vec<Article>> {
-    let results = vec![];
-    Json(results)
-}
 
-/*
-
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 struct AddValues {
     title: String,
     authors: Vec<String>,
-    #[serde(with = "url_serde")]
-    file: Url,
+    file: String,
 }
 
-struct InlineFile(NamedFile);
+fn add(state: web::State<AppState>, values: web::Json<AddValues>) -> WebResult<web::Json<Article>> {
+    let mut params = db::AddParams {
+        title: values.title,
+        authors: values.authors,
+        file: DataUrl::process(values.file.to_str())?.decode_to_vec()?,
+    };
+    let result = state.db.add(params)?;
 
-impl<'r> Responder<'r> for InlineFile {
-    fn respond_to(self, _: &Request) -> response::Result<'r> {
-        let disposition = match self.0.path().file_name() {
-            Some(name) => format!("inline; filename={0}", name.to_os_string().into_string().unwrap()),
-            _ => "inline".to_string()
-        };
-        Response::build()
-            .raw_header("Content-Disposition", disposition)
-            .streamed_body(self.0)
-            .ok()
-    }
+    Ok(web::Json(result))
 }
 
-
-#[post("/add", format = "application/json", data = "<values>")]
-fn add(values: Json<AddValues>) -> Json<Article> {
-    Json(Article::nil())
+fn delete(state: web::State<AppState>, path: web::Path<(Uuid)>) -> WebResult<web::Json<Article>> {
+    Ok(web::Json(state.db.remove(path.0)?))
 }
 
-#[delete("/delete/<id>")]
-fn delete(id: UUID) -> Json<Article> {
-    Json(Article::nil())
+fn view(state: web::State<AppState>, path: web::Path<(Uuid)>) -> WebResult<web::fs::NamedFile> {
+    let result = state.db.get(path.0)?;
+    let file = web::fs::NamedFile::open(result.path())?
+        .set_content_disposition(http::header::ContentDisposition {
+            disposition: http::header::DispositionType::Inline,
+            parameters: vec![
+                http::header::DispositionParam::Filename(result.filename()),
+            ],
+        });
+    Ok(file)
 }
-
-#[get("/view/<id>")]
-fn view(id: UUID) -> Result<InlineFile, NotFound<String>> {
-    let file = NamedFile::open("none").map_err(|_| NotFound(format!("Bad id: {}", id)))?;
-    Ok(InlineFile(file))
-}
-*/
-    
-/*
-fn manage_database(rocket: Rocket) -> Result<Rocket, Rocket> {
-    let path = Path::new(rocket.config().get_str("db_path").unwrap_or("db/"));
-    if let Ok(db) = DB::open(path) {
-        Ok(rocket.manage(Arc::new(db)))
-    } else {
-        Err(rocket)
-    }
-}
-*/
 
 fn load_config() -> Result<Config> {
     {
@@ -180,40 +118,35 @@ fn load_config() -> Result<Config> {
             file.read_to_end(&mut buffer)?;
             let config = toml::from_slice(buffer.as_slice())?;
             return Ok(config);
-        } 
+        }
     }
     Ok(Default::default())
 }
 
-fn init_logger(config: &Config) -> Result<()> {
-    simplelog::SimpleLogger::init(config.log, simplelog::Config::default())?;
-    Ok(())
-}
-
 fn main() -> Result<()> {
     let config = load_config()?;
-    init_logger(&config)?;
+    simplelog::SimpleLogger::init(config.log, simplelog::Config::default())?;
 
-    let address = (config.address.as_str(), config.port).to_socket_addrs()?;
-    let workers = config.workers;
-
-    let state = Arc::new(AppState {
-        config: config
-    });
-    
     let sys = actix::System::new("weid");
 
-    server::new(move || App::with_state(state.clone())
-                .middleware(Logger::default())
-                .handler("/assets", StaticFiles::new("assets").unwrap().show_files_listing())
-                .resource("/", |r| r.get().f(index))
-                .resource("/favicon.ico", |r| r.get().f(favicon))
-                .resource("/search", |r| r.get().with(search))
+    let state = Arc::new(AppState {
+        db: Db::open(config.db_path)?
+    });
+
+    server::new(move || web::App::with_state(state.clone())
+                .middleware(web::middleware::Logger::default())
+                .handler("/assets", web::fs::StaticFiles::new("assets").unwrap().show_files_listing())
+                .resource("/", |r| r.get().with(index))
+                .resource("/favicon.ico", |r| r.get().with(favicon))
+                .resource("/search", |r| r.get().f(search))
+                .resource("/add", |r| r.post().with(add))
+                .resource("/delete/{id}", |r| r.post().with(delete))
+                .resource("/view/{id}", |r| r.get().with(view))
     )
-        .workers(workers)
-        .bind(address.as_slice())?
+        .workers(config.workers)
+        .bind((config.address.as_str(), config.port))?
         .start();
-    
+
     let _ = sys.run();
 
     Ok(())
