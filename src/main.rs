@@ -12,11 +12,11 @@ extern crate serde_json;
 #[macro_use] extern crate serde_derive;
 extern crate data_url;
 extern crate uuid;
-#[macro_use] extern crate error_chain;
 extern crate toml;
 #[macro_use] extern crate log;
 extern crate simplelog;
 extern crate num_cpus;
+#[macro_use] extern crate failure;
 
 mod db;
 mod config;
@@ -28,6 +28,7 @@ use std::sync::Arc;
 
 use uuid::Uuid;
 use data_url::DataUrl;
+use failure::Error;
 
 use futures::Future;
 use actix::{Addr};
@@ -35,20 +36,6 @@ use actix_web::{self as web, server, http};
 
 use self::config::Config;
 use self::db::{Article, Db};
-
-mod errors {
-    error_chain! {
-        links {
-            Db(crate::db::Error, crate::db::ErrorKind);
-        }
-        foreign_links {
-            Io(std::io::Error);
-            Toml(toml::de::Error);
-            Log(log::SetLoggerError);
-        }
-    }
-}
-use self::errors::*;
 
 struct AppState {
     db: Addr<Db>,
@@ -68,9 +55,10 @@ fn favicon(_ : web::Path<()>) -> WebResult<web::fs::NamedFile> {
 
 fn search(req: &Request) -> WebResult<web::Json<Vec<Article>>> {
     let state = req.state();
-    let query = req.query().get("q").map(|v| (*v).as_ref()).unwrap_or("");
+    let query = req.query();
+    let search = query.get("q").map(|v| (*v).as_ref()).unwrap_or("");
     
-    let results = state.db.send(db::Search::new(query)).wait()??;
+    let results = state.db.send(db::Search::new(search)).wait()??;
     
     Ok(web::Json(results))
 }
@@ -83,22 +71,12 @@ struct AddValues {
     file: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Fail)]
 enum DataUrlError {
+    #[fail(display = "invalid format")]
     InvalidFormat,
+    #[fail(display = "invalid content")]
     InvalidContent,
-}
-
-impl std::fmt::Display for DataUrlError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match *self {
-            DataUrlError::InvalidFormat => write!(f, "Error: the requested parameter is invalid format."),
-            DataUrlError::InvalidContent => write!(f, "Error: the requested parameter has invalid content.")
-        }
-    }
-}
-
-impl std::error::Error for DataUrlError {
 }
 
 impl web::error::ResponseError for DataUrlError {
@@ -108,22 +86,23 @@ impl web::error::ResponseError for DataUrlError {
     }
 }
 
-fn add(state: web::State<AppState>, values: web::Json<AddValues>) -> WebResult<web::Json<Article>> {
-    let (file, _) = DataUrl::process(values.file.as_str())
+fn add(state: web::State<Arc<AppState>>, values: web::Json<AddValues>) -> WebResult<web::Json<Article>> {
+    let (file, _) =  DataUrl::process(values.file.as_str())
         .map_err(|_| DataUrlError::InvalidFormat)?
         .decode_to_vec()
         .map_err(|_| DataUrlError::InvalidContent)?;
-    let result = state.db.send(db::Add::new(values.title, values.authors, file)).wait()??;
+    
+    let result = state.db.send(db::Add::new(values.title.clone(), values.authors.clone(), file)).wait()??;
 
     Ok(web::Json(result))
 }
 
-fn delete(state: web::State<AppState>, path: web::Path<(Uuid)>) -> WebResult<web::Json<Article>> {
+fn delete(state: web::State<Arc<AppState>>, path: web::Path<(Uuid)>) -> WebResult<web::Json<Article>> {
     let result = state.db.send(db::Remove::new(*path)).wait()??;
     Ok(web::Json(result))
 }
 
-fn view(state: web::State<AppState>, path: web::Path<(Uuid)>) -> WebResult<web::fs::NamedFile> {
+fn view(state: web::State<Arc<AppState>>, path: web::Path<(Uuid)>) -> WebResult<web::fs::NamedFile> {
     let result = state.db.send(db::Get::new(*path)).wait()??;
     let file = web::fs::NamedFile::open(result.path())?
         .set_content_disposition(http::header::ContentDisposition {
@@ -135,7 +114,7 @@ fn view(state: web::State<AppState>, path: web::Path<(Uuid)>) -> WebResult<web::
     Ok(file)
 }
 
-fn load_config() -> Result<Config> {
+fn load_config() -> Result<Config, Error> {
     {
         let path = Path::new("Config.toml");
         if path.exists() {
@@ -151,7 +130,7 @@ fn load_config() -> Result<Config> {
     Ok(Default::default())
 }
 
-fn main() -> Result<()> {
+fn main() -> Result<(), Error> {
     let config = load_config()?;
     simplelog::SimpleLogger::init(config.log, simplelog::Config::default())?;
 
@@ -161,16 +140,20 @@ fn main() -> Result<()> {
         db: Db::open(config.db_path)?
     });
 
-    server::new(move || web::App::with_state(state.clone())
-                .middleware(web::middleware::Logger::default())
-                .handler("/assets", web::fs::StaticFiles::new("assets").unwrap().show_files_listing())
-                .resource("/", |r| r.get().with(index))
-                .resource("/favicon.ico", |r| r.get().with(favicon))
-                .resource("/search", |r| r.get().f(search))
-                .resource("/add", |r| r.post().with(add))
-                .resource("/delete/{id}", |r| r.post().with(delete))
-                .resource("/view/{id}", |r| r.get().with(view))
-    )
+    let upload_limit = config.upload_limit;
+    server::new(move || {
+        web::App::with_state(state.clone())
+            .middleware(web::middleware::Logger::default())
+            .handler("/assets", web::fs::StaticFiles::new("assets").unwrap().show_files_listing())
+            .resource("/", |r| r.get().with(index))
+            .resource("/favicon.ico", |r| r.get().with(favicon))
+            .resource("/search", |r| r.get().f(search))
+            .resource("/add", move |r| r.post().with_config(add, move |cfg| {
+                    cfg.1.limit(upload_limit);
+            }))
+            .resource("/delete/{id}", |r| r.post().with(delete))
+            .resource("/view/{id}", |r| r.get().with(view))
+    })
         .workers(config.workers)
         .bind((config.address.as_str(), config.port))?
         .start();

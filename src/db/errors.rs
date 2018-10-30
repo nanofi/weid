@@ -1,9 +1,11 @@
 
-use actix_web::{HttpResponse, error::ResponseError};
+use actix;
+use actix_web::{ HttpResponse, error::ResponseError};
 
 error_chain! {
     foreign_links {
         Io(std::io::Error);
+        Mailbox(actix::MailboxError);
     }
 }
 

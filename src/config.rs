@@ -14,6 +14,8 @@ pub struct Config {
     pub address: String,
     #[serde(default = "Config::default_workers")]
     pub workers: usize,
+    #[serde(default = "Config::default_upload_limit")]
+    pub upload_limit: usize, 
     #[serde(default = "Config::default_db_path")]
     pub db_path: PathBuf,
 }
@@ -22,6 +24,7 @@ impl Config {
     fn default_port() -> u16 { 80 }
     fn default_address() -> String { "localhost".to_owned() }
     fn default_workers() -> usize { num_cpus::get() }
+    fn default_upload_limit() -> usize { 1024 * 1024 * 1024 }
     fn default_db_path() -> PathBuf { PathBuf::from("db/") }
 
     fn deserialize_log_level<'de, D>(deserializer: D) -> std::result::Result<simplelog::LevelFilter, D::Error>
@@ -46,6 +49,7 @@ impl Default for Config {
             port: Self::default_port(),
             address: Self::default_address(),
             workers: Self::default_workers(),
+            upload_limit: Self::default_upload_limit(),
             db_path: Self::default_db_path(),
         }
     }

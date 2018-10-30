@@ -19,7 +19,9 @@ pub struct PropArticle {
     pub authors: Authors,
 }
 
-
+#[derive(Serialize)]
+pub struct Article {
+}
 
 impl PropArticle {
     pub fn nil() -> Self {
@@ -45,5 +47,19 @@ impl PropArticle {
         let mut f = String::from(self.title.to_str());
         f.push_str(".pdf");
         f
+    }
+}
+
+impl Article {
+    pub fn nil() -> Self {
+        Self {}
+    }
+    
+    pub fn path(&self) -> PathBuf {
+        unimplemented!();
+    }
+    
+    pub fn filename(&self) -> String {
+        unimplemented!();
     }
 }
