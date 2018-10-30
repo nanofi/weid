@@ -2,7 +2,9 @@
 #![feature(custom_derive)]
 #![feature(try_blocks)]
 #![feature(slice_index_methods)]
+#![feature(self_struct_ctor)]
 
+extern crate futures;
 #[macro_use] extern crate actix;
 extern crate actix_web;
 extern crate serde;
@@ -27,11 +29,12 @@ use std::sync::Arc;
 use uuid::Uuid;
 use data_url::DataUrl;
 
+use futures::Future;
 use actix::{Addr};
 use actix_web::{self as web, server, http};
 
 use self::config::Config;
-use self::db::{Article, Db, DbOperators};
+use self::db::{Article, Db};
 
 mod errors {
     error_chain! {
@@ -66,9 +69,9 @@ fn favicon(_ : web::Path<()>) -> WebResult<web::fs::NamedFile> {
 fn search(req: &Request) -> WebResult<web::Json<Vec<Article>>> {
     let state = req.state();
     let query = req.query().get("q").map(|v| (*v).as_ref()).unwrap_or("");
-
-    let results = state.db.search(query)?;
-
+    
+    let results = state.db.send(db::Search::new(query)).wait()??;
+    
     Ok(web::Json(results))
 }
 
@@ -80,23 +83,48 @@ struct AddValues {
     file: String,
 }
 
+#[derive(Debug)]
+enum DataUrlError {
+    InvalidFormat,
+    InvalidContent,
+}
+
+impl std::fmt::Display for DataUrlError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match *self {
+            DataUrlError::InvalidFormat => write!(f, "Error: the requested parameter is invalid format."),
+            DataUrlError::InvalidContent => write!(f, "Error: the requested parameter has invalid content.")
+        }
+    }
+}
+
+impl std::error::Error for DataUrlError {
+}
+
+impl web::error::ResponseError for DataUrlError {
+    fn error_response(&self) -> Response {
+        Response::BadRequest()
+            .finish()
+    }
+}
+
 fn add(state: web::State<AppState>, values: web::Json<AddValues>) -> WebResult<web::Json<Article>> {
-    let mut params = db::AddParams {
-        title: values.title,
-        authors: values.authors,
-        file: DataUrl::process(values.file.to_str())?.decode_to_vec()?,
-    };
-    let result = state.db.add(params)?;
+    let (file, _) = DataUrl::process(values.file.as_str())
+        .map_err(|_| DataUrlError::InvalidFormat)?
+        .decode_to_vec()
+        .map_err(|_| DataUrlError::InvalidContent)?;
+    let result = state.db.send(db::Add::new(values.title, values.authors, file)).wait()??;
 
     Ok(web::Json(result))
 }
 
 fn delete(state: web::State<AppState>, path: web::Path<(Uuid)>) -> WebResult<web::Json<Article>> {
-    Ok(web::Json(state.db.remove(path.0)?))
+    let result = state.db.send(db::Remove::new(*path)).wait()??;
+    Ok(web::Json(result))
 }
 
 fn view(state: web::State<AppState>, path: web::Path<(Uuid)>) -> WebResult<web::fs::NamedFile> {
-    let result = state.db.get(path.0)?;
+    let result = state.db.send(db::Get::new(*path)).wait()??;
     let file = web::fs::NamedFile::open(result.path())?
         .set_content_disposition(http::header::ContentDisposition {
             disposition: http::header::DispositionType::Inline,

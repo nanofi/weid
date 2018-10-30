@@ -7,7 +7,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 
 use uuid::Uuid;
-use actix::{Context, Actor, Addr};
+use actix::{Context, Actor, Addr, Arbiter, Handler};
 
 pub use self::errors::*;
 pub use self::article::*;
@@ -36,11 +36,25 @@ pub struct Search(String);
 #[rtype(result="Result<Article>")]
 pub struct Get(Uuid);
 
-pub trait DbOperators {
-    fn add(params: AddParams) -> Result<Article>;
-    fn remove(id: Uuid) -> Result<Article>;
-    fn search<S: AsRef<str>>(query: S) -> Result<Vec<Article>>;
-    fn get(id: Uuid) -> Result<Article>;
+impl Add {
+    pub fn new(title: String, authors: Vec<String>, file: Vec<u8>) -> Self {
+        Self(AddParams{ title, authors, file })
+    }
+}
+impl Remove {
+    pub fn new(id: Uuid) -> Self {
+        Self(id)
+    }
+}
+impl Search {
+    pub fn new<S: AsRef<str>>(query: S) -> Self {
+        Self(query.as_ref().to_owned())
+    }
+}
+impl Get {
+    pub fn new(id: Uuid) -> Self {
+        Self(id)
+    }
 }
 
 impl Db {
@@ -67,7 +81,7 @@ impl Db {
         Self::touch(path.join(Self::ID_INDEX_FILE))?;
         Self::touch(path.join(Self::SEARCH_INDEX_FILE))?;
 
-        Ok(Self::create(move |ctx: &mut Context<Self>| Self {
+        Ok(Arbiter::start(move |ctx: &mut Context<Self>| Self {
             path: path
         }))
     }
@@ -77,17 +91,34 @@ impl Actor for Db {
     type Context = Context<Self>;
 }
 
-impl DbOperators for Addr<Db> {
-    fn add(params: AddParams) -> Result<Article> {
+impl Handler<Add> for Db {
+    type Result = Result<Article>;
+
+    fn handle(&mut self, msg: Add, ctx: &mut Self::Context) -> Self::Result {
         unimplemented!();
     }
-    fn remove(id: Uuid) -> Result<Article> {
+}
+
+impl Handler<Remove> for Db {
+    type Result = Result<Article>;
+
+    fn handle(&mut self, msg: Remove, ctx: &mut Self::Context) -> Self::Result {
         unimplemented!();
     }
-    fn search<S: AsRef<str>>(query: S) -> Result<Vec<Article>> {
+}
+
+impl Handler<Get> for Db {
+    type Result = Result<Article>;
+
+    fn handle(&mut self, msg: Get, ctx: &mut Self::Context) -> Self::Result {
         unimplemented!();
     }
-    fn get(id: Uuid) -> Result<Article> {
+}
+
+impl Handler<Search> for Db {
+    type Result = Result<Vec<Article>>;
+
+    fn handle(&mut self, msg: Search, ctx: &mut Self::Context) -> Self::Result {
         unimplemented!();
     }
 }

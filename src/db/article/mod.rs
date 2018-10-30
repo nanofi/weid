@@ -11,17 +11,19 @@ pub use self::title::*;
 pub use self::author::*;
 
 #[derive(Serialize,Copy,Clone)]
-pub struct Article {
+pub struct PropArticle {
     #[serde(skip)]
-    code: u64,
+    pub code: u64,
     pub id: Uuid,
     pub title: Title,
     pub authors: Authors,
 }
 
-impl Article {
+
+
+impl PropArticle {
     pub fn nil() -> Self {
-        Article {
+        Self {
             code: 0,
             id: Uuid::nil(),
             title: Title::nil(),
