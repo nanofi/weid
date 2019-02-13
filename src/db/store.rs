@@ -1,5 +1,4 @@
 
-use std::rc::Rc;
 use std::sync::Arc;
 use std::path::{Path, PathBuf};
 use std::borrow::Borrow;
@@ -15,6 +14,9 @@ use super::article::*;
 #[derive(Message)]
 #[rtype(result="Result<Uuid, Error>")]
 pub struct Add(ArticleContent);
+#[derive(Message)]
+#[rtype(result="Result<Uuid, Error>")]
+pub struct Remove(Uuid);
 
 impl Add {
   pub fn new(article: ArticleContent) -> Self {
@@ -37,7 +39,6 @@ impl Store {
         .open(path.to_string_lossy().borrow(), open::Flags::empty(), 0o600)?
     });
     let db = Database::open(env.clone(), None, &DatabaseOptions::defaults())?;
-    
     Ok(Arbiter::start(|_: &mut Context<Self>| {
       Self {
         path: path,
@@ -58,10 +59,12 @@ impl Handler<Add> for Store {
   type Result = Result<Uuid, Error>;
   
   fn handle(&mut self, msg: Add, ctx: &mut Self::Context) -> Self::Result {
-    let key = Uuid::new_v4();
+    let mut key = Uuid::new_v4();
     {
       let txn = WriteTransaction::new(self.env.clone())?;
-      txn.access().put(&self.db, key.as_bytes(), &msg.0, put::Flags::empty())?;
+      while let Err(_) = txn.access().put(&self.db, key.as_bytes(), &msg.0, put::NOOVERWRITE) {
+        key = Uuid::new_v4();
+      }
       txn.commit()?;
     }
     Ok(key)
