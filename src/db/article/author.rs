@@ -52,13 +52,21 @@ impl Serialize for Author {
 }
 
 impl Authors {
+  pub fn new<S: AsRef<str>, A: AsRef<[S]>>(val: A) -> Self {
+    let mut new = Self::nil();
+    for author in val.as_ref() {
+      new.push(author);
+    }
+    new
+  }
+  
   pub fn nil() -> Self {
     Authors {
       len: 0,
       arr: [Author::nil(); CAP],
-        }
+    }
   }
-  
+
   pub fn len(&self) -> usize {
     self.len as usize
   }

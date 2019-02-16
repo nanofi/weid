@@ -20,7 +20,7 @@ extern crate lmdb_zero as lmdb;
 mod db;
 mod config;
 
-use std::path::{Path, PathBuf};
+use std::path::{Path};
 use std::fs::OpenOptions;
 use std::io::{Read};
 use std::sync::Arc;

@@ -11,6 +11,11 @@ pub struct Title {
 }
 
 impl Title {
+  pub fn new<S: AsRef<str>>(val: S) -> Self {
+    let mut new = Self::nil();
+    new.set(val);
+    new
+  }
   pub fn nil() -> Self {
     Title {
       len: 0,
