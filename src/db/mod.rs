@@ -12,6 +12,7 @@ use uuid::Uuid;
 use actix::{Context, Actor, Addr, Arbiter, Handler};
 use crate::lmdb::{open, put, EnvBuilder, Environment, WriteTransaction, ReadTransaction, Database, DatabaseOptions};
 use failure::Error;
+use futures::Future;
 
 pub use self::article::*;
 pub use self::search::*;
@@ -26,9 +27,9 @@ pub struct Db {
 #[derive(Message)]
 #[rtype(result="Result<Article, Error>")]
 pub struct Add {
-  pub title: String,
-  pub authors: Vec<String>,
-  pub file: Vec<u8>,
+  title: Arc<str>,
+  authors: Arc<[String]>,
+  file: Arc<[u8]>,
 }
 #[derive(Message)]
 #[rtype(result="Result<Article, Error>")]
@@ -41,8 +42,8 @@ pub struct Search(String);
 pub struct Get(Uuid);
 
 impl Add {
-  pub fn new(title: String, authors: Vec<String>, file: Vec<u8>) -> Self {
-    Self{ title, authors, file }
+  pub fn new(title: &str, authors: &[String], file: &[u8]) -> Self {
+    Self{ title: Arc::from(title), authors: Arc::from(authors), file: Arc::from(file) }
   }
 }
 impl Remove {
@@ -65,6 +66,8 @@ impl Db {
   const DATA_DIR: &'static str = "data";
   const SEARCH_INDEX_FILE: &'static str = "search_index";
   const CONTENT_DIR: &'static str = "content";
+
+  const ADD_LOOP_LIMIT: usize = 10;
   
   pub fn open<P: AsRef<Path>>(path: P) -> Result<Addr<Self>, Error> {
     let path = path.as_ref().to_owned();
@@ -78,10 +81,11 @@ impl Db {
     });
     let db = Database::open(env.clone(), None, &DatabaseOptions::defaults())?;
     let search = SearchIndex::open(path.join(Self::SEARCH_INDEX_FILE))?;
-    
-    Ok(Arbiter::start(|_: &mut Context<Self>| {
-      Self { path, env, db, search }
-    }))
+
+    let arbiter = Arbiter::new();
+    Ok(arbiter.exec(|| {
+      Self { path, env, db, search }.start()
+    }).wait()?)
   }
 
   fn content_path(&self, key: &Uuid) -> PathBuf {
@@ -97,15 +101,23 @@ impl Handler<Add> for Db {
   type Result = Result<Article, Error>;
   
   fn handle(&mut self, msg: Add, _: &mut Self::Context) -> Self::Result {
+    println!("TEST");
     let content = ArticleContent::new(msg.title, msg.authors);
-    let mut key = Uuid::new_v4();
     let txn = WriteTransaction::new(self.env.clone())?;
-    {
+    let key = {
+      let mut key = Uuid::new_v4();
       let mut access = txn.access();
-      while let Err(_) = access.put(&self.db, key.as_bytes(), &content, put::NOOVERWRITE) {
+      let mut times = 0;
+      while let Err(e) = access.put(&self.db, key.as_bytes(), &content, put::NOOVERWRITE) {
         key = Uuid::new_v4();
+        println!("{:?} {:?}", key, times);
+        times += 1;
+        if times >= Self::ADD_LOOP_LIMIT {
+          return Err(format_err!("{:?}", e));
+        }
       }
-    }
+      key
+    };
     {
       let path = self.content_path(&key);
       let mut file = OpenOptions::new().write(true).create(true).truncate(true).open(path)?;
@@ -161,7 +173,7 @@ impl Handler<Search> for Db {
   fn handle(&mut self, msg: Search, _: &mut Self::Context) -> Self::Result {
     let query = msg.0;
     self.search.search(query)?;
-    
-    unimplemented!();
+
+    Ok(Vec::new())
   }
 }

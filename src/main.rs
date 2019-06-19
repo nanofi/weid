@@ -5,6 +5,7 @@
 extern crate futures;
 #[macro_use] extern crate actix;
 extern crate actix_web;
+extern crate actix_files;
 extern crate serde;
 extern crate serde_json;
 #[macro_use] extern crate serde_derive;
@@ -31,33 +32,35 @@ use failure::Error;
 
 use futures::Future;
 use actix::{Addr};
-use actix_web::{self as web, server, http};
+use actix_web::{web, middleware, http, error, App, HttpServer, FromRequest};
+use actix_files as fs;
 
 use self::config::Config;
 use self::db::{Article, Db};
 
-struct AppState {
+struct AppData {
   db: Addr<Db>,
 }
 
-type Request = web::HttpRequest<Arc<AppState>>;
+type Request = web::HttpRequest;
 type Response = web::HttpResponse;
-type WebResult<T> = web::error::Result<T>;
+type WebResult<T> = error::Result<T>;
 
-fn index(_ : web::Path<()>) -> WebResult<web::fs::NamedFile> {
-  Ok(web::fs::NamedFile::open(Path::new("index.html"))?)
+fn index(_ : web::Path<()>) -> WebResult<fs::NamedFile> {
+  Ok(fs::NamedFile::open(Path::new("index.html"))?)
 }
 
-fn favicon(_ : web::Path<()>) -> WebResult<web::fs::NamedFile> {
-  Ok(web::fs::NamedFile::open(Path::new("favicon.ico"))?)
+fn favicon(_ : web::Path<()>) -> WebResult<fs::NamedFile> {
+  Ok(fs::NamedFile::open(Path::new("favicon.ico"))?)
 }
 
-fn search(req: &Request) -> WebResult<web::Json<Vec<Article>>> {
-  let state = req.state();
-  let query = req.query();
-  let search = query.get("q").map(|v| (*v).as_ref()).unwrap_or("");
+#[derive(Deserialize, Debug)]
+struct SearchQuery {
+  q: String
+}
 
-  let results = state.db.send(db::Search::new(search)).wait()??;
+fn search(data: web::Data<Arc<AppData>>, query: web::Query<SearchQuery>) -> WebResult<web::Json<Vec<Article>>> {
+  let results = data.db.send(db::Search::new(query.q.clone())).wait()??;
   
   Ok(web::Json(results))
 }
@@ -78,32 +81,34 @@ enum DataUrlError {
   InvalidContent,
 }
 
-impl web::error::ResponseError for DataUrlError {
+impl error::ResponseError for DataUrlError {
   fn error_response(&self) -> Response {
     Response::BadRequest()
       .finish()
   }
 }
 
-fn add(state: web::State<Arc<AppState>>, values: web::Json<AddValues>) -> WebResult<web::Json<Article>> {
+fn add(data: web::Data<Arc<AppData>>, values: web::Json<AddValues>) -> WebResult<web::Json<Article>> {
   let (file, _) =  DataUrl::process(values.file.as_str())
     .map_err(|_| DataUrlError::InvalidFormat)?
     .decode_to_vec()
     .map_err(|_| DataUrlError::InvalidContent)?;
-  
-  let result = state.db.send(db::Add::new(values.title.clone(), values.authors.clone(), file)).wait()??;
+
+  let add = db::Add::new(values.title.as_str(), values.authors.as_slice(), file.as_slice());
+  let request = data.db.send(add);
+  let result = request.wait()??;
   
   Ok(web::Json(result))
 }
 
-fn delete(state: web::State<Arc<AppState>>, path: web::Path<(Uuid)>) -> WebResult<web::Json<Article>> {
-  let result = state.db.send(db::Remove::new(*path)).wait()??;
+fn delete(data: web::Data<Arc<AppData>>, path: web::Path<(Uuid)>) -> WebResult<web::Json<Article>> {
+  let result = data.db.send(db::Remove::new(*path)).wait()??;
   Ok(web::Json(result))
 }
 
-fn view(state: web::State<Arc<AppState>>, path: web::Path<(Uuid)>) -> WebResult<web::fs::NamedFile> {
-  let result = state.db.send(db::Get::new(*path)).wait()??;
-  let file = web::fs::NamedFile::open(result.path())?
+fn view(data: web::Data<Arc<AppData>>, path: web::Path<(Uuid)>) -> WebResult<fs::NamedFile> {
+  let result = data.db.send(db::Get::new(*path)).wait()??;
+  let file = fs::NamedFile::open(result.path())?
     .set_content_disposition(http::header::ContentDisposition {
       disposition: http::header::DispositionType::Inline,
       parameters: vec![
@@ -135,23 +140,25 @@ fn main() -> Result<(), Error> {
   
   let sys = actix::System::new("weid");
   
-  let state = Arc::new(AppState {
+  let data = Arc::new(AppData {
     db: Db::open(config.db_path)?
   });
   
   let upload_limit = config.upload_limit;
-  server::new(move || {
-    web::App::with_state(state.clone())
-      .middleware(web::middleware::Logger::default())
-      .handler("/assets", web::fs::StaticFiles::new("assets").unwrap().show_files_listing())
-      .resource("/", |r| r.get().with(index))
-      .resource("/favicon.ico", |r| r.get().with(favicon))
-      .resource("/search", |r| r.get().f(search))
-      .resource("/add", move |r| r.post().with_config(add, move |cfg| {
-        cfg.1.limit(upload_limit);
-      }))
-      .resource("/delete/{id}", |r| r.post().with(delete))
-      .resource("/view/{id}", |r| r.get().with(view))
+  HttpServer::new(move || {
+    App::new().data(data.clone())
+      .wrap(middleware::Logger::default())
+      .service(fs::Files::new("/assets", "assets"))
+      .route("/", web::get().to(index))
+      .route("/favicon.ico", web::get().to(favicon))
+      .route("/search", web::get().to(search))
+      .service(web::resource("/add")
+               .data(web::Json::<AddValues>::configure(|cfg| {
+                 cfg.limit(upload_limit)
+               }))
+               .route(web::post().to(add)))
+      .route("/delete/{id}", web::post().to(delete))
+      .route("/view/{id}", web::get().to(view))
   })
     .workers(config.workers)
     .bind((config.address.as_str(), config.port))?
