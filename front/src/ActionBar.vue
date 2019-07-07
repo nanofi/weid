@@ -41,7 +41,7 @@ export default {
     }.bind(this), 300),
     resetAddForm() {
       
-    }
+    },
     focus() {
       this.$refs.search.focus()
     }
