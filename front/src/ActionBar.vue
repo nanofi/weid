@@ -1,26 +1,24 @@
 <template>
-  <div class="action-bar">
-    <b-form-group>
-      <b-input-group>
-        <b-form-input
-          ref="search"
-          v-model="search"
-          placeholder="Type search queries"
-          size="lg"></b-form-input>
-
-        <b-button v-b-modal.add-modal slot="append" variant="primary">Add</b-button>
-      </b-input-group>
-    </b-form-group>
-
-    <b-modal id="add-modal"
-             title="Add a new article"
-             @show="resetAddForm">
-    </b-modal>
-  </div>
+<div class="action-bar">
+  <b-form-group>
+    <b-input-group>
+      <b-form-input
+        ref="search"
+        v-model="search"
+        placeholder="Type search queries"
+        size="lg"></b-form-input>
+			
+      <b-button @click="addClick" slot="append" variant="primary">Add</b-button>
+    </b-input-group>
+  </b-form-group>
+	
+	<add-modal ref="addModal"></add-modal>
+</div>
 </template>
 
 <script>
 import _ from 'lodash';
+import AddModal from './AddModal.vue';
 
 export default {
   data() {
@@ -29,7 +27,7 @@ export default {
     };
   },
   watch: {
-    search: function(query) {
+    search(query) {
       this.querySearch(query)
     }
   },
@@ -39,13 +37,15 @@ export default {
 
       
     }.bind(this), 300),
-    resetAddForm() {
-      
-    },
+		addClick() {
+			this.$refs.addModal.show()
+			this.$refs.addModal.title = this.search
+		},
     focus() {
       this.$refs.search.focus()
     }
-  }
+  },
+	components: { AddModal }
 }
 </script>
 

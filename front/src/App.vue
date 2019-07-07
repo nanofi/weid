@@ -1,7 +1,7 @@
 <template>
   <div class="root">
     <action-bar ref="actionBar"></action-bar>
-
+		
     
   </div>
 </template>
@@ -28,5 +28,5 @@ export default {
   @include make-container();
   @include make-container-max-widths(); 
 }
-  
+
 </style>
