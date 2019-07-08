@@ -6,10 +6,10 @@ extern crate futures;
 #[macro_use] extern crate actix;
 extern crate actix_web;
 extern crate actix_files;
+extern crate actix_multipart;
 extern crate serde;
 extern crate serde_json;
 #[macro_use] extern crate serde_derive;
-extern crate data_url;
 extern crate uuid;
 extern crate toml;
 #[macro_use] extern crate log;
@@ -27,13 +27,13 @@ use std::io::{Read};
 use std::sync::Arc;
 
 use uuid::Uuid;
-use data_url::DataUrl;
 use failure::Error;
 
 use futures::Future;
 use actix::{Addr};
 use actix_web::{web, middleware, http, error, App, HttpServer, FromRequest};
 use actix_files as fs;
+use actix_multipart::{Field, Multipart, MultipartError};
 
 use self::config::Config;
 use self::db::{Article, Db};
@@ -73,26 +73,7 @@ struct AddValues {
   file: String,
 }
 
-#[derive(Debug, Fail)]
-enum DataUrlError {
-  #[fail(display = "invalid format")]
-  InvalidFormat,
-  #[fail(display = "invalid content")]
-  InvalidContent,
-}
-
-impl error::ResponseError for DataUrlError {
-  fn error_response(&self) -> Response {
-    Response::BadRequest()
-      .finish()
-  }
-}
-
-fn add(data: web::Data<Arc<AppData>>, values: web::Json<AddValues>) -> WebResult<web::Json<Article>> {
-  let (file, _) =  DataUrl::process(values.file.as_str())
-    .map_err(|_| DataUrlError::InvalidFormat)?
-    .decode_to_vec()
-    .map_err(|_| DataUrlError::InvalidContent)?;
+fn add(data: web::Data<Arc<AppData>>, multipart: Multipart) -> WebResult<web::Json<Article>> {
 
   let add = db::Add::new(values.title.as_str(), values.authors.as_slice(), file.as_slice());
   let request = data.db.send(add);
@@ -152,11 +133,7 @@ fn main() -> Result<(), Error> {
       .route("/", web::get().to(index))
       .route("/favicon.ico", web::get().to(favicon))
       .route("/search", web::get().to(search))
-      .service(web::resource("/add")
-               .data(web::Json::<AddValues>::configure(|cfg| {
-                 cfg.limit(upload_limit)
-               }))
-               .route(web::post().to(add)))
+      .route("/add", web::post().to(add))
       .route("/delete/{id}", web::post().to(delete))
       .route("/view/{id}", web::get().to(view))
   })
