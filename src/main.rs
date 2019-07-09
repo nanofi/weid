@@ -2,7 +2,6 @@
 #![feature(try_blocks)]
 #![feature(slice_index_methods)]
 
-extern crate futures;
 #[macro_use] extern crate actix;
 extern crate actix_web;
 extern crate actix_files;
@@ -29,9 +28,9 @@ use std::sync::Arc;
 use uuid::Uuid;
 use failure::Error;
 
-use futures::Future;
+use futures::{Future, Stream};
 use actix::{Addr};
-use actix_web::{web, middleware, http, error, App, HttpServer, FromRequest};
+use actix_web::{web, middleware, http, error, App, HttpServer, Responder};
 use actix_files as fs;
 use actix_multipart::{Field, Multipart, MultipartError};
 
@@ -42,16 +41,12 @@ struct AppData {
   db: Addr<Db>,
 }
 
-type Request = web::HttpRequest;
-type Response = web::HttpResponse;
-type WebResult<T> = error::Result<T>;
-
-fn index(_ : web::Path<()>) -> WebResult<fs::NamedFile> {
-  Ok(fs::NamedFile::open(Path::new("index.html"))?)
+fn index() -> impl Responder {
+  fs::NamedFile::open(Path::new("index.html"))
 }
 
-fn favicon(_ : web::Path<()>) -> WebResult<fs::NamedFile> {
-  Ok(fs::NamedFile::open(Path::new("favicon.ico"))?)
+fn favicon() -> impl Responder {
+  fs::NamedFile::open(Path::new("favicon.ico"))
 }
 
 #[derive(Deserialize, Debug)]
@@ -59,44 +54,36 @@ struct SearchQuery {
   q: String
 }
 
-fn search(data: web::Data<Arc<AppData>>, query: web::Query<SearchQuery>) -> WebResult<web::Json<Vec<Article>>> {
-  let results = data.db.send(db::Search::new(query.q.clone())).wait()??;
-  
-  Ok(web::Json(results))
+fn search(data: web::Data<Arc<AppData>>, query: web::Query<SearchQuery>) -> impl Future<Item=impl Responder, Error=error::Error> {
+  let search = db::Search::new(&query.q);
+  data.db.send(search).then(|result| Ok(web::Json(result??)))
 }
 
-
-#[derive(Deserialize, Debug)]
-struct AddValues {
-  title: String,
-  authors: Vec<String>,
-  file: String,
+fn add(data: web::Data<Arc<AppData>>, multipart: Multipart) -> impl Future<Item=impl Responder, Error=error::Error> {
+  let title = "A";
+  let authors = vec!["A".to_string(), "B".to_string()];
+  let add = db::Add::new(title, authors.as_slice());
+  data.db.send(add).then(|result| {
+    Ok(web::Json(result??))
+  })
 }
 
-fn add(data: web::Data<Arc<AppData>>, multipart: Multipart) -> WebResult<web::Json<Article>> {
-
-  let add = db::Add::new(values.title.as_str(), values.authors.as_slice(), file.as_slice());
-  let request = data.db.send(add);
-  let result = request.wait()??;
-  
-  Ok(web::Json(result))
+fn delete(data: web::Data<Arc<AppData>>, path: web::Path<(Uuid)>) -> impl Future<Item=impl Responder, Error=error::Error> {
+  data.db.send(db::Remove::new(*path)).then(|result| Ok(web::Json(result??)))
 }
 
-fn delete(data: web::Data<Arc<AppData>>, path: web::Path<(Uuid)>) -> WebResult<web::Json<Article>> {
-  let result = data.db.send(db::Remove::new(*path)).wait()??;
-  Ok(web::Json(result))
-}
-
-fn view(data: web::Data<Arc<AppData>>, path: web::Path<(Uuid)>) -> WebResult<fs::NamedFile> {
-  let result = data.db.send(db::Get::new(*path)).wait()??;
-  let file = fs::NamedFile::open(result.path())?
-    .set_content_disposition(http::header::ContentDisposition {
-      disposition: http::header::DispositionType::Inline,
-      parameters: vec![
-        http::header::DispositionParam::Filename(result.filename()),
-      ],
-    });
-  Ok(file)
+fn view(data: web::Data<Arc<AppData>>, path: web::Path<(Uuid)>) -> impl Future<Item=impl Responder, Error=error::Error> {
+  data.db.send(db::Get::new(*path)).then(|result| {
+    let article = result??;
+    let file = fs::NamedFile::open(article.path())?
+      .set_content_disposition(http::header::ContentDisposition {
+        disposition: http::header::DispositionType::Inline,
+        parameters: vec![
+          http::header::DispositionParam::Filename(article.filename()),
+        ],
+      });
+    Ok(file)
+  })
 }
 
 fn load_config() -> Result<Config, Error> {
@@ -117,7 +104,7 @@ fn load_config() -> Result<Config, Error> {
 
 fn main() -> Result<(), Error> {
   let config = load_config()?;
-  simplelog::SimpleLogger::init(config.log, simplelog::Config::default())?;
+  simplelog::TermLogger::init(config.log, simplelog::Config::default(), simplelog::TerminalMode::Mixed)?;
   
   let sys = actix::System::new("weid");
   
@@ -132,10 +119,10 @@ fn main() -> Result<(), Error> {
       .service(fs::Files::new("/assets", "assets"))
       .route("/", web::get().to(index))
       .route("/favicon.ico", web::get().to(favicon))
-      .route("/search", web::get().to(search))
-      .route("/add", web::post().to(add))
-      .route("/delete/{id}", web::post().to(delete))
-      .route("/view/{id}", web::get().to(view))
+      .route("/search", web::get().to_async(search))
+      .route("/add", web::post().to_async(add))
+      .route("/delete/{id}", web::post().to_async(delete))
+      .route("/view/{id}", web::get().to_async(view))
   })
     .workers(config.workers)
     .bind((config.address.as_str(), config.port))?

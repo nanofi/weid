@@ -29,7 +29,6 @@ pub struct Db {
 pub struct Add {
   title: Arc<str>,
   authors: Arc<[String]>,
-  file: Arc<[u8]>,
 }
 #[derive(Message)]
 #[rtype(result="Result<Article, Error>")]
@@ -42,8 +41,8 @@ pub struct Search(String);
 pub struct Get(Uuid);
 
 impl Add {
-  pub fn new(title: &str, authors: &[String], file: &[u8]) -> Self {
-    Self{ title: Arc::from(title), authors: Arc::from(authors), file: Arc::from(file) }
+  pub fn new(title: &str, authors: &[String]) -> Self {
+    Self{ title: Arc::from(title), authors: Arc::from(authors) }
   }
 }
 impl Remove {
@@ -101,7 +100,8 @@ impl Handler<Add> for Db {
   type Result = Result<Article, Error>;
   
   fn handle(&mut self, msg: Add, _: &mut Self::Context) -> Self::Result {
-    println!("TEST");
+    error!("TEST");
+    /*
     let content = ArticleContent::new(msg.title, msg.authors);
     let txn = WriteTransaction::new(self.env.clone())?;
     let key = {
@@ -110,7 +110,7 @@ impl Handler<Add> for Db {
       let mut times = 0;
       while let Err(e) = access.put(&self.db, key.as_bytes(), &content, put::NOOVERWRITE) {
         key = Uuid::new_v4();
-        println!("{:?} {:?}", key, times);
+        debug!("{:?} {:?}", key, times);
         times += 1;
         if times >= Self::ADD_LOOP_LIMIT {
           return Err(format_err!("{:?}", e));
@@ -119,16 +119,12 @@ impl Handler<Add> for Db {
       key
     };
     {
-      let path = self.content_path(&key);
-      let mut file = OpenOptions::new().write(true).create(true).truncate(true).open(path)?;
-      file.write(&msg.file)?;
-      file.flush()?;
-    }
-    {
       self.search.add(&key, &content)?;
     }
     txn.commit()?;
     Ok(Article::new(self.content_path(&key), key, content))
+     */
+    Err(failure::err_msg("Test"))
   }
 }
 
