@@ -101,10 +101,11 @@ export default {
 			this.$refs.modal.show()
 		},
 		submit() {
+			console.log("submit()")
       this.isSubmitting = true
       var data = new FormData()
-      data.append('title', this.title)
-      data.append('authors', this.authors)
+      data.append('title', JSON.stringify(this.title))
+      data.append('authors', JSON.stringify(this.authors))
       data.append('file', this.file)
       axios.post("/add", data, {
         onUploadProgress: (event) => {

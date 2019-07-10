@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::borrow::Borrow;
 
 use uuid::Uuid;
-use actix::{Context, Actor, Addr, Arbiter, Handler};
+use actix::{Context, Actor, Addr, Arbiter, Handler, Message};
 use crate::lmdb::{open, put, EnvBuilder, Environment, WriteTransaction, ReadTransaction, Database, DatabaseOptions};
 use failure::Error;
 use futures::Future;
@@ -24,41 +24,47 @@ pub struct Db {
   search: SearchIndex,
 }
 
-#[derive(Message)]
-#[rtype(result="Result<Article, Error>")]
+
 pub struct Add {
   title: Arc<str>,
   authors: Arc<[String]>,
 }
-#[derive(Message)]
-#[rtype(result="Result<Article, Error>")]
 pub struct Remove(Uuid);
-#[derive(Message)]
-#[rtype(result="Result<Vec<Article>, Error>")]
 pub struct Search(String);
-#[derive(Message)]
-#[rtype(result="Result<Article, Error>")]
 pub struct Get(Uuid);
 
+
 impl Add {
-  pub fn new(title: &str, authors: &[String]) -> Self {
-    Self{ title: Arc::from(title), authors: Arc::from(authors) }
+  pub fn new<S: AsRef<str>, A: AsRef<[String]>>(title: S, authors: A) -> Self {
+    Self { title: Arc::from(title.as_ref()), authors: Arc::from(authors.as_ref()) }
   }
+}
+impl Message for Add {
+  type Result = Result<Article, Error>;
 }
 impl Remove {
   pub fn new(id: Uuid) -> Self {
     Self(id)
   }
 }
+impl Message for Remove {
+  type Result = Result<Article, Error>;
+}
 impl Search {
   pub fn new<S: AsRef<str>>(query: S) -> Self {
     Self(query.as_ref().to_owned())
   }
 }
+impl Message for Search {
+  type Result = Result<Vec<Article>, Error>;
+}
 impl Get {
   pub fn new(id: Uuid) -> Self {
     Self(id)
   }
+}
+impl Message for Get {
+  type Result = Result<Article, Error>;
 }
 
 impl Db {
@@ -67,8 +73,8 @@ impl Db {
   const CONTENT_DIR: &'static str = "content";
 
   const ADD_LOOP_LIMIT: usize = 10;
-  
-  pub fn open<P: AsRef<Path>>(path: P) -> Result<Addr<Self>, Error> {
+
+  pub fn open_in<P: AsRef<Path>>(arb: &Arbiter, path: P) -> Result<Addr<Self>, Error> {
     let path = path.as_ref().to_owned();
     std::fs::create_dir_all(&path)?;
     std::fs::create_dir_all(path.join(Self::CONTENT_DIR))?;
@@ -81,14 +87,13 @@ impl Db {
     let db = Database::open(env.clone(), None, &DatabaseOptions::defaults())?;
     let search = SearchIndex::open(path.join(Self::SEARCH_INDEX_FILE))?;
 
-    let arbiter = Arbiter::new();
-    Ok(arbiter.exec(|| {
-      Self { path, env, db, search }.start()
-    }).wait()?)
+    Ok(Self::start_in_arbiter(&arb, |_: &mut Context<Self>| {
+      Self { path, env, db, search }
+    }))
   }
 
   fn content_path(&self, key: &Uuid) -> PathBuf {
-    self.path.join(Self::CONTENT_DIR).join(key.to_simple_ref().to_string())
+    self.path.join(Self::CONTENT_DIR).join(format!("{}.pdf", key.to_simple_ref()))
   }
 }
 
@@ -100,8 +105,6 @@ impl Handler<Add> for Db {
   type Result = Result<Article, Error>;
   
   fn handle(&mut self, msg: Add, _: &mut Self::Context) -> Self::Result {
-    error!("TEST");
-    /*
     let content = ArticleContent::new(msg.title, msg.authors);
     let txn = WriteTransaction::new(self.env.clone())?;
     let key = {
@@ -109,8 +112,8 @@ impl Handler<Add> for Db {
       let mut access = txn.access();
       let mut times = 0;
       while let Err(e) = access.put(&self.db, key.as_bytes(), &content, put::NOOVERWRITE) {
+        info!("Db[Add] Conflict key {}. This is {} time generation.", key, times);
         key = Uuid::new_v4();
-        debug!("{:?} {:?}", key, times);
         times += 1;
         if times >= Self::ADD_LOOP_LIMIT {
           return Err(format_err!("{:?}", e));
@@ -118,13 +121,12 @@ impl Handler<Add> for Db {
       }
       key
     };
+    info!("Db[Add] An article is added with id={}.", key);
     {
       self.search.add(&key, &content)?;
     }
     txn.commit()?;
     Ok(Article::new(self.content_path(&key), key, content))
-     */
-    Err(failure::err_msg("Test"))
   }
 }
 
