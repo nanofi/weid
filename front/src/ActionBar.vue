@@ -12,7 +12,8 @@
     </b-input-group>
   </b-form-group>
 	
-	<add-modal ref="addModal"></add-modal>
+	<add-modal ref="addModal"
+    @added="$emit('added', $event)"></add-modal>
 </div>
 </template>
 
@@ -33,10 +34,8 @@ export default {
   },
   methods: {
     querySearch: _.debounce(function(query) {
-      // Do search here
-
-      
-    }.bind(this), 300),
+      this.$emit("search", query)
+    }, 300),
 		addClick() {
 			this.$refs.addModal.show()
 			this.$refs.addModal.title = this.search

@@ -101,7 +101,6 @@ export default {
 			this.$refs.modal.show()
 		},
 		submit() {
-			console.log("submit()")
       this.isSubmitting = true
       var data = new FormData()
       data.append('title', JSON.stringify(this.title))
@@ -113,8 +112,13 @@ export default {
           this.submitted = event.loaded
         }
       }).then(response => {
+				this.$emit("added", response.data)
+				this.$nextTick(() => { this.$refs.modal.hide() })
       }).catch(error => {
-        console.log(error)
+				this.$bvModal.msgBoxOk(`Failed to add: ${error.response.data}`, {
+					title: 'Error!',
+					centered: true,
+				})
       }).finally(() => {
         this.isSubmitting = false
         this.submitted = 0

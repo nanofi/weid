@@ -7,6 +7,7 @@ module.exports = ( env, argv ) => ({
     path: path.join(__dirname, '../assets'),
     filename: '[name].js'
   },
+  devtool: 'inline-source-map',
   resolve: {
     alias: {
       'vue$': 'vue/dist/vue.esm.js'

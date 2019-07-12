@@ -3,8 +3,6 @@ mod article;
 mod search;
 
 use std::path::{Path, PathBuf};
-use std::fs::{remove_file, OpenOptions};
-use std::io::Write;
 use std::sync::Arc;
 use std::borrow::Borrow;
 
@@ -12,7 +10,6 @@ use uuid::Uuid;
 use actix::{Context, Actor, Addr, Arbiter, Handler, Message};
 use crate::lmdb::{open, put, EnvBuilder, Environment, WriteTransaction, ReadTransaction, Database, DatabaseOptions};
 use failure::Error;
-use futures::Future;
 
 pub use self::article::*;
 pub use self::search::*;
@@ -122,9 +119,7 @@ impl Handler<Add> for Db {
       key
     };
     info!("Db[Add] An article is added with id={}.", key);
-    {
-      self.search.add(&key, &content)?;
-    }
+    self.search.add(&key, &content)?;
     txn.commit()?;
     Ok(Article::new(self.content_path(&key), key, content))
   }
@@ -142,13 +137,7 @@ impl Handler<Remove> for Db {
       access.del_key(&self.db, key.as_bytes())?;
       content
     };
-    {
-      let path = self.content_path(&key);
-      remove_file(&path)?;
-    }
-    {
-      self.search.del(&key)?;
-    }
+    self.search.del(&key)?;
     txn.commit()?;
     Ok(Article::new(self.content_path(&key), key, content))
   }

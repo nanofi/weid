@@ -43,6 +43,20 @@
             },
             "args": [],
             "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "chrome",
+            "request": "launch",
+            "name": "Debug in browser",
+            "url": "http://172.22.149.170:8000",
+            "webRoot": "${workspaceFolder}/front/src",
+            "preLaunchTask": "webpack development"
+        }
+    ],
+    "compounds": [
+        {
+            "name": "Server/Browser",
+            "configurations": ["Debug executable 'weid'", "Debug in browser"]
         }
     ]
 }

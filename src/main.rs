@@ -24,10 +24,9 @@ mod db;
 mod config;
 
 use std::path::{Path};
-use std::fs::OpenOptions;
+use std::fs::{remove_file, OpenOptions};
 use std::io::{Write, Read};
 use std::sync::Arc;
-use std::borrow::Borrow;
 
 use uuid::Uuid;
 use failure::Error;
@@ -40,7 +39,7 @@ use actix_multipart::{Field, Multipart, MultipartError};
 use tempfile::NamedTempFile;
 
 use self::config::Config;
-use self::db::{Article, Db};
+use self::db::Db;
 
 struct AppData {
   db: Addr<Db>,
@@ -152,7 +151,11 @@ fn add(data: web::Data<Arc<AppData>>, multipart: Multipart) -> impl Future<Item=
 }
 
 fn delete(data: web::Data<Arc<AppData>>, path: web::Path<(Uuid)>) -> impl Future<Item=impl Responder, Error=error::Error> {
-  data.db.send(db::Remove::new(*path)).then(|result| Ok(web::Json(result??)))
+  data.db.send(db::Remove::new(*path)).then(|result| {
+    let article = result??;
+    remove_file(article.path())?;
+    Ok(web::Json(article))
+  })
 }
 
 fn view(data: web::Data<Arc<AppData>>, path: web::Path<(Uuid)>) -> impl Future<Item=impl Responder, Error=error::Error> {
