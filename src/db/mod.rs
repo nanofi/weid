@@ -46,7 +46,6 @@ impl Db {
     let db = Database::open(env.clone(), None, &DatabaseOptions::defaults())?;
 
     let search_dir = path.join(Self::SEARCH_INDEX_DIR);
-    std::fs::create_dir_all(&search_dir)?;
     let search = SearchIndex::open(search_dir)?;
 
     let arb = Arbiter::new();
