@@ -14,6 +14,7 @@ pub struct SearchIndex {
 
 impl SearchIndex {
   pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
+     std::fs::create_dir_all(path.as_ref())?;
     let file = OpenOptions::new()
       .create(true)
       .read(true)
@@ -27,15 +28,15 @@ impl SearchIndex {
     })
   }
 
-  pub fn add(&mut self, key: &Uuid, content: &ArticleContent) -> Result<(), Error> {
+  pub fn add(&mut self, _key: &Uuid, _content: &ArticleContent) -> Result<(), Error> {
     Ok(())
   }
 
-  pub fn del(&mut self, key: &Uuid) -> Result<(), Error> {
+  pub fn del(&mut self, _key: &Uuid) -> Result<(), Error> {
     Ok(())
   }
 
-  pub fn search<S: AsRef<str>>(&self, words: S) -> Result<Vec<Uuid>, Error> {
+  pub fn search<S: AsRef<str>>(&self, _words: S) -> Result<Vec<Uuid>, Error> {
     Ok(Vec::new())
   }
 }

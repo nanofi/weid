@@ -6,10 +6,8 @@ use std::borrow::Borrow;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::lmdb::{
-  open, put, Database, DatabaseOptions, EnvBuilder, Environment, ReadTransaction, WriteTransaction,
-};
-use actix::{Actor, Addr, Arbiter, Context, Handler, Message};
+use crate::lmdb::{open, Database, DatabaseOptions, EnvBuilder, Environment};
+use actix::{Actor, Addr, Arbiter, Context};
 use failure::Error;
 use uuid::Uuid;
 
@@ -26,12 +24,12 @@ pub struct Db {
 
 impl Db {
   const DATA_DIR: &'static str = "data";
-  const SEARCH_INDEX_FILE: &'static str = "search_index";
+  const SEARCH_INDEX_DIR: &'static str = "search_index";
   const CONTENT_DIR: &'static str = "content";
 
   const ADD_LOOP_LIMIT: usize = 10;
 
-  pub fn open_in<P: AsRef<Path>>(arb: &Arbiter, path: P) -> Result<Addr<Self>, Error> {
+  pub fn open<P: AsRef<Path>>(path: P) -> Result<Addr<Self>, Error> {
     let path = path.as_ref().to_owned();
     std::fs::create_dir_all(&path)?;
     std::fs::create_dir_all(path.join(Self::CONTENT_DIR))?;
@@ -46,8 +44,12 @@ impl Db {
       )?
     });
     let db = Database::open(env.clone(), None, &DatabaseOptions::defaults())?;
-    let search = SearchIndex::open(path.join(Self::SEARCH_INDEX_FILE))?;
 
+    let search_dir = path.join(Self::SEARCH_INDEX_DIR);
+    std::fs::create_dir_all(&search_dir)?;
+    let search = SearchIndex::open(search_dir)?;
+
+    let arb = Arbiter::new();
     Ok(Self::start_in_arbiter(&arb, |_: &mut Context<Self>| Self {
       path,
       env,

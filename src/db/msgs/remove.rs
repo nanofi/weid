@@ -1,6 +1,6 @@
 use actix::{Handler, Message};
 use failure::Error;
-use lmdb::{put, ReadTransaction, WriteTransaction};
+use lmdb::WriteTransaction;
 use uuid::Uuid;
 
 use super::super::article::{Article, ArticleContent};

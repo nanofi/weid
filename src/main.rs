@@ -34,7 +34,7 @@ use std::sync::Arc;
 use failure::Error;
 use uuid::Uuid;
 
-use actix::{Addr, Arbiter};
+use actix::Addr;
 use actix_files as fs;
 use actix_multipart::{Field, Multipart, MultipartError};
 use actix_web::{error, http, middleware, web, App, HttpServer, Responder};
@@ -255,10 +255,8 @@ fn main() -> Result<(), Error> {
 
   let system = actix::System::new("weid");
 
-  let bg = Arbiter::new();
-
   let data = Arc::new(AppData {
-    db: Db::open_in(&bg, config.db_path)?,
+    db: Db::open(config.db_path)?,
   });
 
   HttpServer::new(move || {

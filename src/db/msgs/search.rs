@@ -1,7 +1,7 @@
 use actix::{Handler, Message};
 use failure::Error;
 
-use super::super::article::{Article, ArticleContent};
+use super::super::article::Article;
 use super::super::Db;
 
 pub struct Search(String);
