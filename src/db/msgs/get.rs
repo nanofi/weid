@@ -1,15 +1,14 @@
 use actix::{Handler, Message};
 use failure::Error;
 use lmdb::ReadTransaction;
-use uuid::Uuid;
 
 use super::super::article::{Article, ArticleContent};
 use super::super::Db;
 
-pub struct Get(Uuid);
+pub struct Get(u64);
 
 impl Get {
-  pub fn new(id: Uuid) -> Self {
+  pub fn new(id: u64) -> Self {
     Self(id)
   }
 }
@@ -23,7 +22,7 @@ impl Handler<Get> for Db {
   fn handle(&mut self, msg: Get, _: &mut Self::Context) -> Self::Result {
     let key = msg.0;
     let txn = ReadTransaction::new(self.env.clone())?;
-    let content = (txn.access().get(&self.db, key.as_bytes())? as &ArticleContent).to_owned();
-    Ok(Article::new(self.content_path(&key), key, content))
+    let content = (txn.access().get(&self.db, &key)? as &ArticleContent).to_owned();
+    Ok(Article::new(self.content_path(key), key, content))
   }
 }

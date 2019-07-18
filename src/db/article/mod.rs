@@ -5,7 +5,6 @@ use std::path::{Path, PathBuf};
 
 use crate::lmdb::traits::LmdbRaw;
 use serde::{ser::SerializeStruct, Serialize, Serializer};
-use uuid::Uuid;
 
 pub use self::author::*;
 pub use self::title::*;
@@ -29,7 +28,7 @@ impl ArticleContent {
 
 pub struct Article {
   path: PathBuf,
-  id: Uuid,
+  id: u64,
   content: ArticleContent,
 }
 
@@ -47,7 +46,7 @@ impl Serialize for Article {
 }
 
 impl Article {
-  pub fn new(path: PathBuf, id: Uuid, content: ArticleContent) -> Self {
+  pub fn new(path: PathBuf, id: u64, content: ArticleContent) -> Self {
     Self { path, id, content }
   }
 

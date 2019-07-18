@@ -1,15 +1,14 @@
 use actix::{Handler, Message};
 use failure::Error;
 use lmdb::WriteTransaction;
-use uuid::Uuid;
 
 use super::super::article::{Article, ArticleContent};
 use super::super::Db;
 
-pub struct Remove(Uuid);
+pub struct Remove(u64);
 
 impl Remove {
-  pub fn new(id: Uuid) -> Self {
+  pub fn new(id: u64) -> Self {
     Self(id)
   }
 }
@@ -25,12 +24,16 @@ impl Handler<Remove> for Db {
     let txn = WriteTransaction::new(self.env.clone())?;
     let content = {
       let mut access = txn.access();
-      let content = (access.get(&self.db, key.as_bytes())? as &ArticleContent).to_owned();
-      access.del_key(&self.db, key.as_bytes())?;
+      let content = (access.get(&self.db, &key)? as &ArticleContent).to_owned();
+      access.del_key(&self.db, &key)?;
       content
     };
-    self.search.del(&key)?;
+    self.id.del(key)?;
+    if let Err(e) = self.search.del(key) {
+      self.id.add(key)?;
+      return Err(e);
+    }
     txn.commit()?;
-    Ok(Article::new(self.content_path(&key), key, content))
+    Ok(Article::new(self.content_path(key), key, content))
   }
 }

@@ -13,7 +13,6 @@ extern crate serde_json;
 #[macro_use]
 extern crate serde_derive;
 extern crate toml;
-extern crate uuid;
 #[macro_use]
 extern crate log;
 extern crate num_cpus;
@@ -31,13 +30,11 @@ use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::Arc;
 
-use failure::Error;
-use uuid::Uuid;
-
 use actix::Addr;
 use actix_files as fs;
 use actix_multipart::{Field, Multipart, MultipartError};
 use actix_web::{error, http, middleware, web, App, HttpServer, Responder};
+use failure::Error;
 use futures::{future, Future, Stream};
 use tempfile::NamedTempFile;
 
@@ -193,7 +190,7 @@ fn add(
 
 fn delete(
   data: web::Data<Arc<AppData>>,
-  path: web::Path<(Uuid)>,
+  path: web::Path<(u64)>,
 ) -> impl Future<Item = impl Responder, Error = error::Error> {
   data.db.send(db::Remove::new(*path)).then(|result| {
     let article = result??;
@@ -204,7 +201,7 @@ fn delete(
 
 fn view(
   data: web::Data<Arc<AppData>>,
-  path: web::Path<(Uuid)>,
+  path: web::Path<(u64)>,
 ) -> impl Future<Item = impl Responder, Error = error::Error> {
   data.db.send(db::Get::new(*path)).then(|result| {
     let article = result??;

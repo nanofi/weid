@@ -16,7 +16,6 @@ actix-multipart = "0.1.2"
 serde = "1.0.94"
 serde_json = "1.0.40"
 serde_derive = "1.0.94"
-uuid = { version = "0.7.4", features = ["v4", "serde"] }
 toml = "0.5.1"
 log = "0.4.6"
 simplelog = "0.6.0"
