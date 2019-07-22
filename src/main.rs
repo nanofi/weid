@@ -3,6 +3,7 @@
 #![feature(slice_index_methods)]
 #![feature(rustc_private)]
 #![feature(box_syntax)]
+#![feature(let_chains)]
 
 extern crate actix;
 extern crate actix_files;
