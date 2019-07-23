@@ -25,6 +25,7 @@ extern crate tempfile;
 
 mod config;
 mod db;
+mod collection;
 
 use std::fs::{remove_file, OpenOptions};
 use std::io::{Read, Write};
