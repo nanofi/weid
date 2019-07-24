@@ -4,6 +4,7 @@
 #![feature(rustc_private)]
 #![feature(box_syntax)]
 #![feature(let_chains)]
+#![feature(generators, generator_trait)]
 
 extern crate actix;
 extern crate actix_files;
@@ -23,9 +24,9 @@ extern crate failure;
 extern crate lmdb_zero as lmdb;
 extern crate tempfile;
 
+mod collection;
 mod config;
 mod db;
-mod collection;
 
 use std::fs::{remove_file, OpenOptions};
 use std::io::{Read, Write};

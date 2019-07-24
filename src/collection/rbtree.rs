@@ -1,11 +1,9 @@
-use memmap::MmapMut;
 use failure::Error;
-use std::path::Path;
-use std::fs::{File, OpenOptions};
-use std::mem;
-use std::ops::{Deref, DerefMut};
-use std::marker::PhantomData;
+use memmap::MmapMut;
 use std::cmp::{Ord, Ordering};
+use std::fs::File;
+use std::mem;
+use super::Mem;
 
 #[repr(C)]
 struct Node<T> {
@@ -28,6 +26,10 @@ impl<T: Default> Node<T> {
   }
 }
 
+impl<T: Default> Default for Node<T> {
+  fn default() -> Self { Self::zero() }
+}
+
 impl<T> Node<T> {
   #[inline]
   fn is_red(&self) -> bool {
@@ -47,95 +49,77 @@ impl<T> Node<T> {
   }
 }
 
-struct Mem<T> {
-  mmap: MmapMut,
-  phantom: PhantomData<T>,
+struct RBTreeMeta {
+  root: Option<u64>,
 }
-
-impl<T> Mem<T> {
-  fn new(mmap: MmapMut) -> Self {
-    Self { mmap, phantom: PhantomData }
-  }
-
-  #[inline]
-  fn len(&self) -> u64 {
-    unsafe{ *(self.mmap.as_ptr() as *const u64) }
-  }
-  #[inline]
-  fn len_mut(&mut self) -> &mut u64 {
-    unsafe { &mut *(self.mmap.as_mut_ptr() as *mut u64) }
-  }
-  #[inline]
-  fn root(&self) -> Option<u64> {
-    unsafe { *(self.mmap.as_ptr().add(mem::size_of::<u64>()) as *const Option<u64>) }
-  }
-  #[inline]
-  fn root_mut(&mut self) -> &mut Option<u64> {
-    unsafe { &mut *(self.mmap.as_mut_ptr().add(mem::size_of::<u64>()) as *mut Option<u64>) }
-  }
-  
-  #[inline]
-  fn occupy(&self) -> usize {
-    mem::size_of::<u64>() + mem::size_of::<Option<u64>>() + mem::size_of::<Node<T>>() * self.len() as usize
-  }
-
-  #[inline]
-  fn push(&mut self) -> u64 {
-    let len = self.len();
-    *self.len_mut() += 1;
-    len
-  }
-
-  #[inline]
-  fn set_root(&mut self, val: Option<u64>) {
-    *self.root_mut() = val;
-  }
-}
-
-impl<T> Deref for Mem<T> {
-  type Target = [Node<T>];
-  #[inline]
-  fn deref(&self) -> &Self::Target {
-    unsafe { 
-      std::slice::from_raw_parts(
-        self.mmap.as_ptr()
-          .add(mem::size_of::<u64>())
-          .add(mem::size_of::<Option<u64>>()) as *const Node<T>, self.len() as usize) 
-    }
-  }
-}
-impl<T> DerefMut for Mem<T> {
-  #[inline]
-  fn deref_mut(&mut self) -> &mut Self::Target {
-    unsafe { 
-      std::slice::from_raw_parts_mut(
-        self.mmap.as_mut_ptr()
-          .add(mem::size_of::<u64>())
-          .add(mem::size_of::<Option<u64>>()) as *mut Node<T>, self.len() as usize) 
-    }
-  }
-}
-impl<T> AsRef<[Node<T>]> for Mem<T> {
-  #[inline]
-  fn as_ref(&self) -> &[Node<T>] {
-    self.deref()
-  }
-}
-impl<T> AsMut<[Node<T>]> for Mem<T> {
-  #[inline]
-  fn as_mut(&mut self) -> &mut [Node<T>] {
-    self.deref_mut()
-  }
-}
-
 
 pub struct RBTree<T> {
   file: File,
-  mem: Mem<T>,
+  mem: Mem<Node<T>, RBTreeMeta>,
   capacity: u64,
 }
 
-impl<T: Default + Copy> RBTree<T> {
+impl<T: std::fmt::Display> RBTree<T> {
+  fn fmt_inner(&self, f: &mut std::fmt::Formatter<'_>, node: u64) -> std::fmt::Result {
+    let left = self.mem[node].left;
+    let right = self.mem[node].right;
+    if left.is_some() || right.is_some() {
+      if let Some(l) = left {
+        write!(
+          f,
+          "  {} -> {};\n",
+          self.mem[node].val, self.mem[l].val
+        )?;
+        self.fmt_inner(f, l)?;
+      } else {
+        write!(
+          f,
+          "  left{0} [shape=point, label=\"\"];\n  {0} -> left{0};\n",
+          self.mem[node].val
+        )?;
+      }
+      if let Some(r) = right {
+        write!(
+          f,
+          "  {} -> {};\n",
+          self.mem[node].val, self.mem[r].val
+        )?;
+        self.fmt_inner(f, r)?;
+      } else {
+        write!(
+          f,
+          "  right{0} [shape=point, label=\"\"];\n  {0} -> right{0};\n",
+          self.mem[node].val
+        )?;
+      }
+    }
+    Ok(())
+  }
+}
+impl<T: std::fmt::Display> std::fmt::Display for RBTree<T> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "digraph G {{\n  graph [ordering=\"out\"];\n")?;
+    for i in 0..self.mem.len() {
+      let color = if self.mem[i].is_black() {
+        "black"
+      } else {
+        "red"
+      };
+      write!(
+        f,
+        "  {} [label=\"{},{0}\", color=\"{}\"];\n",
+        self.mem[i].val, i, color
+      )?;
+    }
+    if let Some(r) = self.mem.meta().root {
+      self.fmt_inner(f, r)?;
+    }
+    write!(f, "}}")?;
+    Ok(())
+  }
+}
+
+impl<T: Default + Ord + Copy> RBTree<T> {
   const LEAST_CAPACITY: u64 = 4096;
 
   pub fn create(file: File) -> Result<Self, Error> {
@@ -146,21 +130,25 @@ impl<T: Default + Copy> RBTree<T> {
     } else {
       len
     };
-    let mem = Mem::new(unsafe{ MmapMut::map_mut(&file)? });
-    Ok(Self { file, mem, capacity })
+    let mem = Mem::new(unsafe { MmapMut::map_mut(&file)? });
+    Ok(Self {
+      file,
+      mem,
+      capacity,
+    })
   }
 
   fn extend(&mut self) -> Result<(), Error> {
     self.capacity *= 2;
     self.file.set_len(self.capacity)?;
-    self.mem = Mem::new(unsafe{ MmapMut::map_mut(&self.file)? });
+    self.mem = Mem::new(unsafe { MmapMut::map_mut(&self.file)? });
     Ok(())
   }
 
   fn shrink(&mut self) -> Result<(), Error> {
     self.capacity /= 2;
     self.file.set_len(self.capacity)?;
-    self.mem = Mem::new(unsafe{ MmapMut::map_mut(&self.file)? });
+    self.mem = Mem::new(unsafe { MmapMut::map_mut(&self.file)? });
     Ok(())
   }
 
@@ -169,187 +157,142 @@ impl<T: Default + Copy> RBTree<T> {
       self.extend()?;
     }
     let n = self.mem.push();
-    self.mem[n as usize] = Node::zero();
+    self.mem[n] = Node::zero();
     Ok(n)
   }
 
   #[inline]
   fn assign_tree(&mut self, x: u64, y: u64) {
-    let parent = self.mem[x as usize].parent;
-    self.mem[y as usize].parent = parent;
+    let parent = self.mem[x].parent;
+    self.mem[y].parent = parent;
     if let Some(i) = parent {
-      if Some(x) == self.mem[i as usize].left {
-        self.mem[i as usize].left = Some(y)
+      if Some(x) == self.mem[i].left {
+        self.mem[i].left = Some(y)
       } else {
-        self.mem[i as usize].right = Some(y);
+        self.mem[i].right = Some(y);
       }
     } else {
-      self.mem.set_root(Some(y));
+      self.mem.meta_mut().root = Some(y);
     }
   }
 
   #[inline]
   fn assign_parent_left(&mut self, x: u64, y: u64) {
-    let left = self.mem[x as usize].left;
-    self.mem[y as usize].left = left;
+    let left = self.mem[x].left;
+    self.mem[y].left = left;
     if let Some(i) = left {
-      self.mem[i as usize].parent = Some(y);
+      self.mem[i].parent = Some(y);
     }
   }
 
   #[inline]
   fn assign_parent_right(&mut self, x: u64, y: u64) {
-    let right = self.mem[x as usize].right;
-    self.mem[y as usize].right = right;
+    let right = self.mem[x].right;
+    self.mem[y].right = right;
     if let Some(i) = right {
-      self.mem[i as usize].parent = Some(y);
+      self.mem[i].parent = Some(y);
     }
   }
 
   #[inline]
   fn assign_left(&mut self, x: u64, y: Option<u64>) {
-    self.mem[x as usize].left = y;
+    self.mem[x].left = y;
     if let Some(i) = y {
-      self.mem[i as usize].parent = Some(x);
+      self.mem[i].parent = Some(x);
     }
   }
 
   #[inline]
   fn assign_right(&mut self, x: u64, y: Option<u64>) {
-    self.mem[x as usize].right = y;
+    self.mem[x].right = y;
     if let Some(i) = y {
-      self.mem[i as usize].parent = Some(x);
+      self.mem[i].parent = Some(x);
     }
   }
 
   fn del_node(&mut self, x: u64) -> Result<(), Error> {
-    let last = self.mem.len()-1;
+    let last = self.mem.len() - 1;
     self.assign_tree(last, x);
     self.assign_parent_left(last, x);
     self.assign_parent_right(last, x);
-    self.mem[x as usize].val = self.mem[last as usize].val;
-    self.mem[last as usize] = Node::zero();
-    if self.mem.occupy() < (self.capacity as usize)/2 {
+    self.mem[x].val = self.mem[last].val;
+    self.mem.pop();
+    if self.mem.occupy() < (self.capacity) as usize / 2 {
       self.shrink()?;
     }
     Ok(())
   }
 
-  pub fn new(&mut self) -> Result<u64, Error> {
-    unimplemented!();
-  }
-
   #[inline]
-  fn swap_color(&mut self, x: usize, y: usize) {
+  fn swap_color(&mut self, x: u64, y: u64) {
+    let x = x;
+    let y = y;
     let c = self.mem[x].color;
     self.mem[x].color = self.mem[y].color;
     self.mem[y].color = c;
   }
 
   fn rotate_left(&mut self, x: u64) {
-    let rc = self.mem[x as usize].right.expect("The right node must exist when rotating left.");
-    self.assign_right(x, self.mem[rc as usize].left);
+    let rc = self.mem[x]
+      .right
+      .expect("The right node must exist when rotating left.");
+    self.assign_right(x, self.mem[rc].left);
     self.assign_tree(x, rc);
     self.assign_left(rc, Some(x));
   }
 
   fn rotate_right(&mut self, x: u64) {
-    let lc = self.mem[x as usize].left.expect("The left node must exist when rotating right.");
-    self.assign_left(x, self.mem[lc as usize].right);
+    let lc = self.mem[x]
+      .left
+      .expect("The left node must exist when rotating right.");
+    self.assign_left(x, self.mem[lc].right);
     self.assign_tree(x, lc);
     self.assign_right(lc, Some(x));
   }
 
-  /*
-
-  pub fn add(&mut self, id: u64) -> Result<(), Error> {
-    let mut x = self.mem.root();
+  fn add_bst(&mut self, val: T) -> Result<u64, Error> {
+    let mut x = self.mem.meta().root;
     let mut p = None;
+    let mut ord = Ordering::Equal;
     while x.is_some() {
-      let i = x.unwrap() as usize;
+      let i = x.unwrap();
       p = x;
-      if id < self.mem[i].val {
-        x = self.mem[i].left;
-      } else {
-        x = self.mem[i].right;
+      ord = val.cmp(&self.mem[i].val);
+      match ord {
+        Ordering::Less => x = self.mem[i].left,
+        Ordering::Greater => x = self.mem[i].right,
+        _ => bail!("Cannot add the existing item."),
       }
     }
     let node = self.new_node()?;
-    self.mem[node as usize].parent = p;
-    self.mem[node as usize].to_red();
-    if let Some(p) = p {
-      if id < self.mem[p as usize].val {
-        self.mem[p as usize].left = Some(node);
-      } else {
-        self.mem[p as usize].right = Some(node);
-      }
-    } else {
-      self.mem.set_root(Some(node));
+    self.mem[node].val = val;
+    self.mem[node].parent = p;
+    self.mem[node].to_red();
+    match ord {
+      Ordering::Less => self.mem[p.unwrap()].left = Some(node),
+      Ordering::Greater => self.mem[p.unwrap()].right = Some(node),
+      Ordering::Equal => self.mem.meta_mut().root = Some(node),
     }
-    let mut x = node;
-    while x != self.mem.root().unwrap() && self.mem[self.mem[x as usize].parent.unwrap() as usize].is_red() {
-      let p = self.mem[x as usize].parent.unwrap();
-      let g = self.mem[p as usize].parent.unwrap();
-      if Some(p) == self.mem[g as usize].left {
-        let u = self.mem[g as usize].right;
-        if u.is_some() && self.mem[u.unwrap() as usize].is_red() {
-          let u = u.unwrap();
-          self.mem[u as usize].to_black();
-          self.mem[p as usize].to_black();
-          self.mem[g as usize].to_red();
-          x = g;
-        } else {
-          if Some(x) == self.mem[p as usize].right {
-            self.rotate_left(p);
-            x = g;
-          } else {
-            self.swap_color(p as usize, g as usize);
-            x = p;
-          }
-          self.rotate_right(g);
-        }
-      } else {
-        let u = self.mem[g as usize].left;
-        if u.is_some() && self.mem[u.unwrap() as usize].is_red() {
-          let u = u.unwrap();
-          self.mem[u as usize].to_black();
-          self.mem[p as usize].to_black();
-          self.mem[g as usize].to_red();
-          x = g;
-        } else {
-          if Some(x) == self.mem[p as usize].left {
-            self.rotate_right(p);
-            x = g;
-          } else {
-            self.swap_color(p as usize, g as usize);
-            x = p;
-          }
-          self.rotate_left(g);
-        }
-      }
-    }
-    let r = self.mem.root().unwrap();
-    self.mem[r as usize].to_black();
-    Ok(())
+    Ok(node)
   }
 
-  fn del_bst(&mut self, x: Option<u64>, id: u64) -> Option<u64> {
+  fn del_bst(&mut self, x: Option<u64>, val: T) -> Option<u64> {
     let x = match x {
       None => return None,
       Some(x) => x,
     };
-    match id.cmp(&self.mem[x as usize].val) {
-      Ordering::Less => self.del_bst(self.mem[x as usize].left, id),
-      Ordering::Greater => self.del_bst(self.mem[x as usize].right, id),
+    match val.cmp(&self.mem[x].val) {
+      Ordering::Less => self.del_bst(self.mem[x].left, val),
+      Ordering::Greater => self.del_bst(self.mem[x].right, val),
       Ordering::Equal => {
-        if let (Some(_), Some(r)) = (self.mem[x as usize].left, self.mem[x as usize].right) {
+        if let (Some(_), Some(r)) = (self.mem[x].left, self.mem[x].right) {
           let mut m = r;
-          while let Some(n) = self.mem[m as usize].left {
+          while let Some(n) = self.mem[m].left {
             m = n;
           }
-          let v = self.mem[m as usize].val;
-          self.mem[x as usize].val = v; 
-          self.del_bst(Some(r), v)
+          let v = self.mem[m].val;
+          self.mem[x].val = v;
+          Some(m)
         } else {
           Some(x)
         }
@@ -357,8 +300,67 @@ impl<T: Default + Copy> RBTree<T> {
     }
   }
 
-  fn is_black(&self, x: Option<u64>) -> bool {
-    x.is_none() || self.mem[x.unwrap() as usize].is_black()
+  #[inline]
+  fn is_red<X: Into<Option<u64>>>(&self, x: X) -> bool {
+    let x = x.into();
+    x.is_some() && self.mem[x.unwrap()].is_red()
+  }
+  #[inline]
+  fn is_black<X: Into<Option<u64>>>(&self, x: X) -> bool {
+    let x = x.into();
+    x.is_none() || self.mem[x.unwrap()].is_black()
+  }
+
+  pub fn new(&mut self) -> Result<T, Error> {
+    unimplemented!();
+  }
+
+  pub fn add(&mut self, val: T) -> Result<(), Error> {
+    let mut x = self.add_bst(val)?;
+    while self.is_red(x) && self.is_red(self.mem[x].parent) {
+      let p = self.mem[x].parent.unwrap();
+      let g = self.mem[p].parent.unwrap();
+      if Some(p) == self.mem[g].left {
+        let u = self.mem[g].right;
+        if self.is_red(u) {
+          let u = u.unwrap();
+          self.mem[u].to_black();
+          self.mem[p].to_black();
+          self.mem[g].to_red();
+          x = g;
+        } else {
+          if Some(x) == self.mem[p].right {
+            self.rotate_left(p);
+            x = g;
+          } else {
+            self.swap_color(p, g);
+            x = p;
+          }
+          self.rotate_right(g);
+        }
+      } else {
+        let u = self.mem[g].left;
+        if self.is_red(u) {
+          let u = u.unwrap();
+          self.mem[u].to_black();
+          self.mem[p].to_black();
+          self.mem[g].to_red();
+          x = g;
+        } else {
+          if Some(x) == self.mem[p].left {
+            self.rotate_right(p);
+            x = g;
+          } else {
+            self.swap_color(p, g);
+            x = p;
+          }
+          self.rotate_left(g);
+        }
+      }
+    }
+    let r = self.mem.meta().root.unwrap();
+    self.mem[r].to_black();
+    Ok(())
   }
 
   fn del_dblack(&mut self, p: Option<u64>, x: Option<u64>) {
@@ -366,114 +368,112 @@ impl<T: Default + Copy> RBTree<T> {
       None => return,
       Some(p) => p,
     };
-    if x == self.mem[p as usize].left {
-      let mut s = self.mem[p as usize].right.unwrap();
-      if self.mem[s as usize].is_red() {
-        self.mem[s as usize].to_black();
-        self.mem[p as usize].to_red();
+    if x == self.mem[p].left {
+      let mut s = self.mem[p].right.unwrap();
+      if self.mem[s].is_red() {
+        self.mem[s].to_black();
+        self.mem[p].to_red();
         self.rotate_left(s);
-        s = self.mem[p as usize].right.unwrap();
+        s = self.mem[p].right.unwrap();
       }
-      let l = self.mem[s as usize].left;
-      let r = self.mem[s as usize].right;
+      let l = self.mem[s].left;
+      let r = self.mem[s].right;
       if self.is_black(l) && self.is_black(r) {
-        self.mem[s as usize].to_red();
-        if self.mem[p as usize].is_red() {
-          self.mem[p as usize].to_black();
+        self.mem[s].to_red();
+        if self.mem[p].is_red() {
+          self.mem[p].to_black();
         } else {
-          self.del_dblack(self.mem[p as usize].parent, Some(p));
+          self.del_dblack(self.mem[p].parent, Some(p));
         }
       } else {
         if self.is_black(r) {
-          self.mem[l.unwrap() as usize].to_black();
-          self.mem[s as usize].to_red();
+          self.mem[l.unwrap()].to_black();
+          self.mem[s].to_red();
           self.rotate_right(s);
-          s = self.mem[p as usize].right.unwrap();
+          s = self.mem[p].right.unwrap();
         }
-        self.mem[s as usize].color = self.mem[p as usize].color;
-        self.mem[p as usize].to_black();
-        let r = self.mem[s as usize].right.unwrap();
-        self.mem[r as usize].to_black();
+        self.mem[s].color = self.mem[p].color;
+        self.mem[p].to_black();
+        let r = self.mem[s].right.unwrap();
+        self.mem[r].to_black();
         self.rotate_left(p);
       }
     } else {
-      let mut s = self.mem[p as usize].left.unwrap();
-      if self.mem[s as usize].is_red() {
-        self.mem[s as usize].to_black();
-        self.mem[p as usize].to_red();
+      let mut s = self.mem[p].left.unwrap();
+      if self.mem[s].is_red() {
+        self.mem[s].to_black();
+        self.mem[p].to_red();
         self.rotate_right(s);
-        s = self.mem[p as usize].left.unwrap();
+        s = self.mem[p].left.unwrap();
       }
-      let l = self.mem[s as usize].left;
-      let r = self.mem[s as usize].right;
+      let l = self.mem[s].left;
+      let r = self.mem[s].right;
       if self.is_black(l) && self.is_black(r) {
-        self.mem[s as usize].to_red();
-        if self.mem[p as usize].is_red() {
-          self.mem[p as usize].to_black();
+        self.mem[s].to_red();
+        if self.mem[p].is_red() {
+          self.mem[p].to_black();
         } else {
-          self.del_dblack(self.mem[p as usize].parent, Some(p));
+          self.del_dblack(self.mem[p].parent, Some(p));
         }
       } else {
         if self.is_black(l) {
-          self.mem[r.unwrap() as usize].to_black();
-          self.mem[s as usize].to_red();
+          self.mem[r.unwrap()].to_black();
+          self.mem[s].to_red();
           self.rotate_right(s);
-          s = self.mem[p as usize].left.unwrap();
+          s = self.mem[p].left.unwrap();
         }
-        self.mem[s as usize].color = self.mem[p as usize].color;
-        self.mem[p as usize].to_black();
-        let l = self.mem[s as usize].left.unwrap();
-        self.mem[l as usize].to_black();
+        self.mem[s].color = self.mem[p].color;
+        self.mem[p].to_black();
+        let l = self.mem[s].left.unwrap();
+        self.mem[l].to_black();
         self.rotate_right(p);
       }
     }
   }
 
-  pub fn del(&mut self, id: u64) -> Result<(), Error> {
-    let x = self.del_bst(self.mem.root(), id);
+  pub fn del(&mut self, val: T) -> Result<(), Error> {
+    let x = self.del_bst(self.mem.meta().root, val);
     let x = match x {
       None => return Ok(()),
-      Some(x) if Some(x) == self.mem.root() => {
-        self.mem.set_root(None);
+      Some(x) if Some(x) == self.mem.meta().root => {
+        self.mem.meta_mut().root = None;
         return Ok(());
       },
       Some(x) => x,
     };
-    let c = self.mem[x as usize].left.and(self.mem[x as usize].right);
-    if self.mem[x as usize].is_red() || (c.is_some() && self.mem[c.unwrap() as usize].is_red()) {
-      let p = self.mem[x as usize].parent.unwrap();
-      if Some(x) == self.mem[p as usize].left {
-        self.mem[p as usize].left = c;
+    let c = self.mem[x].left.and(self.mem[x].right);
+    if self.mem[x].is_red() || (c.is_some() && self.mem[c.unwrap()].is_red()) {
+      let p = self.mem[x].parent.unwrap();
+      if Some(x) == self.mem[p].left {
+        self.mem[p].left = c;
       } else {
-        self.mem[p as usize].right = c;
+        self.mem[p].right = c;
       }
       if let Some(c) = c {
-        self.mem[c as usize].to_black();
-        self.mem[c as usize].parent = Some(p);
+        self.mem[c].to_black();
+        self.mem[c].parent = Some(p);
       }
     } else {
-      let p = self.mem[x as usize].parent;
+      let p = self.mem[x].parent;
       if let Some(p) = p {
-        if Some(x) == self.mem[p as usize].left {
-          self.mem[p as usize].left = c
+        if Some(x) == self.mem[p].left {
+          self.mem[p].left = c
         } else {
-          self.mem[p as usize].right = c
+          self.mem[p].right = c
         }
       } else {
-        self.mem.set_root(c);
+        self.mem.meta_mut().root = c;
       }
       if let Some(c) = c {
-        self.mem[c as usize].parent = p;
+        self.mem[c].parent = p;
       }
       self.del_dblack(p, c);
     }
     self.del_node(x)?;
-    let r = self.mem.root().unwrap();
-    self.mem[r as usize].to_black();
+    let r = self.mem.meta().root.unwrap();
+    self.mem[r].to_black();
     Ok(())
   }
-
-  */
 }
 
 #[cfg(test)]
@@ -481,32 +481,249 @@ mod tests {
   use super::*;
   use tempfile::tempfile;
 
+  fn vals() -> Vec<u64> {
+    vec![
+      6531, 7872, 6576, 8533, 5085, 2817, 9887, 3796, 1282, 5573, 8589, 3078, 590, 1494, 3295,
+      6609, 2587, 5230, 5101, 6358, 2359, 6520, 8487, 9520, 981, 8192, 1044, 25, 3409, 1826, 7563,
+      8815, 7790, 4136, 2868, 617, 6433, 3320, 110, 9427, 3556, 1573, 8474, 3794, 4277, 7194, 3708,
+      654, 2821, 156, 476, 3343, 387, 3858, 522, 8810, 2947, 8774, 3854, 5693, 9512, 8942, 2646,
+      3561, 1760, 67, 3372, 6540, 3447, 8243, 9859, 5944, 7580, 5610, 5478, 1286, 9347, 8831, 8490,
+      4875, 465, 9761, 2545, 5496, 6120, 9771, 7852, 9114, 9870, 96, 2068, 8222, 4859, 5872, 505,
+      2031, 8440, 6501, 9836, 3554,
+    ]
+  }
+  fn vals_sorted() -> Vec<u64> {
+    let mut v = vals();
+    v.sort();
+    v
+  }
+
   #[test]
   fn test_create() -> Result<(), Error> {
     let file = tempfile()?;
     let tree: RBTree<u64> = RBTree::create(file)?;
     assert!(tree.capacity >= RBTree::<u64>::LEAST_CAPACITY);
     assert_eq!(tree.mem.len(), 0);
-    assert_eq!(tree.mem.root(), None);
+    assert_eq!(tree.mem.meta().root, None);
     Ok(())
   }
 
   fn construct_tree(tree: &mut RBTree<u64>) -> Result<(), Error> {
-    
+    for v in vals() {
+      tree.add_bst(v)?;
+    }
     Ok(())
   }
 
   #[test]
-  fn test_new_node() -> Result<(), Error> {
+  fn test_add_del_node() -> Result<(), Error> {
     let file = tempfile()?;
     let mut tree: RBTree<u64> = RBTree::create(file)?;
     for _ in 0..500 {
       tree.new_node()?;
     }
-    let occupied = mem::size_of::<u64>() + mem::size_of::<Option<u64>>() + mem::size_of::<Node<u64>>() * 500;
+    let occupied =
+      mem::size_of::<u64>() + mem::size_of::<Option<u64>>() + mem::size_of::<Node<u64>>() * 500;
     assert_eq!(tree.mem.occupy(), occupied);
-    let cap = (occupied as f64).log2().ceil().exp2() as usize;
+    let cap = (occupied as f64).log2().ceil().exp2();
     assert_eq!(tree.capacity, cap as u64);
+    for i in 0..490 {
+      let t = i % tree.mem.len();
+      tree.del_node(t as u64)?;
+    }
+    let occupied =
+      mem::size_of::<u64>() + mem::size_of::<Option<u64>>() + mem::size_of::<Node<u64>>() * 10;
+    assert_eq!(tree.mem.occupy(), occupied);
+    let cap = (occupied as f64).log2().ceil().exp2();
+    assert_eq!(tree.capacity, cap as u64);
+    Ok(())
+  }
+
+  impl<T: Copy> RBTree<T> {
+    fn dfs_inner(&self, b: &mut Vec<T>, node: u64) {
+      if let Some(l) = self.mem[node].left {
+        self.dfs_inner(b, l);
+      }
+      b.push(self.mem[node].val);
+      if let Some(r) = self.mem[node].right {
+        self.dfs_inner(b, r);
+      }
+    }
+    fn dfs(&self) -> Vec<T> {
+      let mut b = vec![];
+      if let Some(r) = self.mem.meta().root {
+        self.dfs_inner(&mut b, r);
+      }
+      b
+    }
+  }
+
+  impl<T> RBTree<T> {
+    fn assert_root(&self, r: usize) {
+      assert_eq!(self.mem.meta().root, Some(r as u64));
+      assert_eq!(self.mem[r].parent, None);
+    }
+    fn assert_left_child<C: Into<Option<u64>>>(&self, p: usize, c: C) {
+      let c = c.into();
+      assert_eq!(self.mem[p].left, c);
+      if let Some(c) = c {
+        assert_eq!(self.mem[c].parent, Some(p as u64));
+      }
+    }
+    fn assert_right_child<C: Into<Option<u64>>>(&self, p: usize, c: C) {
+      let c = c.into();
+      assert_eq!(self.mem[p].right, c);
+      if let Some(c) = c {
+        assert_eq!(self.mem[c].parent, Some(p as u64));
+      }
+    }
+  }
+
+  #[test]
+  fn test_add_bst() -> Result<(), Error> {
+    let file = tempfile()?;
+    let mut tree: RBTree<u64> = RBTree::create(file)?;
+    construct_tree(&mut tree)?;
+    let vs = vals_sorted();
+    assert_eq!(vs, tree.dfs());
+    Ok(())
+  }
+
+  #[test]
+  fn test_del_bst1() -> Result<(), Error> {
+    let file = tempfile()?;
+    let mut tree: RBTree<u64> = RBTree::create(file)?;
+    construct_tree(&mut tree)?;
+    let x = tree.del_bst(tree.mem.meta().root, 6531);
+    assert_eq!(x, Some(67));
+    assert_eq!(tree.mem[0usize].val, 6540);
+    Ok(())
+  }
+  #[test]
+  fn test_del_bst2() -> Result<(), Error> {
+    let file = tempfile()?;
+    let mut tree: RBTree<u64> = RBTree::create(file)?;
+    construct_tree(&mut tree)?;
+    let x = tree.del_bst(tree.mem.meta().root, 8533);
+    assert_eq!(x, Some(10));
+    assert_eq!(tree.mem[3usize].val, 8589);
+    Ok(())
+  }
+
+  #[test]
+  fn test_rotate_left1() -> Result<(), Error> {
+    let file = tempfile()?;
+    let mut tree: RBTree<u64> = RBTree::create(file)?;
+    construct_tree(&mut tree)?;
+    tree.rotate_left(19);
+    tree.assert_right_child(9, 21);
+    tree.assert_left_child(21, 19);
+    tree.assert_right_child(19, 36);
+    Ok(())
+  }
+  #[test]
+  fn test_rotate_left2() -> Result<(), Error> {
+    let file = tempfile()?;
+    let mut tree: RBTree<u64> = RBTree::create(file)?;
+    construct_tree(&mut tree)?;
+    tree.rotate_left(36);
+    tree.assert_left_child(21, 97);
+    tree.assert_left_child(97, 36);
+    tree.assert_right_child(36, None);
+    Ok(())
+  }
+  #[test]
+  fn test_rotate_left3() -> Result<(), Error> {
+    let file = tempfile()?;
+    let mut tree: RBTree<u64> = RBTree::create(file)?;
+    construct_tree(&mut tree)?;
+    tree.rotate_left(0);
+    tree.assert_root(1);
+    tree.assert_left_child(1, 0);
+    tree.assert_right_child(0, 2);
+    Ok(())
+  }
+
+  #[test]
+  fn test_rotate_right1() -> Result<(), Error> {
+    let file = tempfile()?;
+    let mut tree: RBTree<u64> = RBTree::create(file)?;
+    construct_tree(&mut tree)?;
+    tree.rotate_right(9);
+    tree.assert_right_child(4, 17);
+    tree.assert_right_child(17, 9);
+    tree.assert_left_child(9, 74);
+    Ok(())
+  }
+  #[test]
+  fn test_rotate_right2() -> Result<(), Error> {
+    let file = tempfile()?;
+    let mut tree: RBTree<u64> = RBTree::create(file)?;
+    construct_tree(&mut tree)?;
+    tree.rotate_right(46);
+    tree.assert_left_child(43, 63);
+    tree.assert_right_child(63, 46);
+    tree.assert_left_child(46, None);
+    Ok(())
+  }
+  #[test]
+  fn test_rotate_right3() -> Result<(), Error> {
+    let file = tempfile()?;
+    let mut tree: RBTree<u64> = RBTree::create(file)?;
+    construct_tree(&mut tree)?;
+    tree.rotate_right(0);
+    tree.assert_root(4);
+    tree.assert_right_child(4, 0);
+    tree.assert_left_child(0, 9);
+    Ok(())
+  }
+
+
+  struct BlackHeightAsserter<'a, T> {
+    tree: &'a RBTree<T>,
+    height: Option<usize>,
+  }
+  impl<T: Default + Ord + Copy> RBTree<T> {
+    fn assert_constraint(&self) {
+      assert!(self.is_black(self.mem.meta().root));
+      self.assert_black_height();
+    }
+
+    fn assert_black_height(&self) {
+      BlackHeightAsserter { tree: self, height: None }.assert();
+    }
+  }
+  impl<'a, T> BlackHeightAsserter<'a, T> {
+    fn assert_recur(&mut self, x: Option<u64>, h: usize) {
+      if let Some(x) = x {
+        let h = if self.tree.mem[x].is_black() { h + 1 } else { h };
+        self.assert_recur(self.tree.mem[x].left, h);
+        self.assert_recur(self.tree.mem[x].right, h);
+      } else {
+        let h = h + 1;
+        if let Some(e) = self.height {
+          assert_eq!(h, e);
+        } else {
+          self.height = h.into();
+        }
+      }
+    }
+
+    fn assert(&mut self) {
+      self.assert_recur(self.tree.mem.meta().root, 0);
+    }
+  }
+
+  #[test]
+  fn test_add() -> Result<(), Error> {
+    let file = tempfile()?;
+    let mut tree: RBTree<u64> = RBTree::create(file)?;
+    for v in vals() {
+      tree.add(v)?;
+    }
+    println!("{}", tree);
+    tree.assert_constraint();
+
     Ok(())
   }
 }
