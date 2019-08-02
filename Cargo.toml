@@ -24,3 +24,6 @@ failure = "0.1.5"
 lmdb-zero = "0.4.4"
 tempfile = "3.1.0"
 memmap = "0.7.0"
+
+[dev-dependencies]
+rand = "0.7.0"

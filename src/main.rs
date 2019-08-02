@@ -23,6 +23,8 @@ extern crate simplelog;
 extern crate failure;
 extern crate lmdb_zero as lmdb;
 extern crate tempfile;
+#[cfg(test)]
+extern crate rand;
 
 mod collection;
 mod config;

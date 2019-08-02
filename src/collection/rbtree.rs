@@ -49,6 +49,7 @@ impl<T> Node<T> {
   }
 }
 
+#[repr(C)]
 struct RBTreeMeta {
   root: Option<u64>,
 }
@@ -317,8 +318,8 @@ impl<T: Default + Ord + Copy> RBTree<T> {
 
   pub fn add(&mut self, val: T) -> Result<(), Error> {
     let mut x = self.add_bst(val)?;
-    while self.is_red(x) && self.is_red(self.mem[x].parent) {
-      let p = self.mem[x].parent.unwrap();
+    while Some(x) != self.mem.meta().root && self.is_red(x) && self.is_red(self.mem[x].parent) {
+      let mut p = self.mem[x].parent.unwrap();
       let g = self.mem[p].parent.unwrap();
       if Some(p) == self.mem[g].left {
         let u = self.mem[g].right;
@@ -331,12 +332,11 @@ impl<T: Default + Ord + Copy> RBTree<T> {
         } else {
           if Some(x) == self.mem[p].right {
             self.rotate_left(p);
-            x = g;
-          } else {
-            self.swap_color(p, g);
-            x = p;
+            mem::swap(&mut x, &mut p);
           }
           self.rotate_right(g);
+          self.swap_color(p, g);
+          x = p;
         }
       } else {
         let u = self.mem[g].left;
@@ -349,12 +349,11 @@ impl<T: Default + Ord + Copy> RBTree<T> {
         } else {
           if Some(x) == self.mem[p].left {
             self.rotate_right(p);
-            x = g;
-          } else {
-            self.swap_color(p, g);
-            x = p;
+            mem::swap(&mut x, &mut p);
           }
           self.rotate_left(g);
+          self.swap_color(p, g);
+          x = p;
         }
       }
     }
@@ -480,6 +479,7 @@ impl<T: Default + Ord + Copy> RBTree<T> {
 mod tests {
   use super::*;
   use tempfile::tempfile;
+  use rand::Rng;
 
   fn vals() -> Vec<u64> {
     vec![
@@ -715,13 +715,53 @@ mod tests {
   }
 
   #[test]
+  fn test_byte_size() {
+    assert_eq!(mem::size_of::<Node<u64>>(), 64);
+    assert_eq!(mem::size_of::<Option<u64>>(), 16);
+  }
+
+  #[test]
   fn test_add() -> Result<(), Error> {
     let file = tempfile()?;
     let mut tree: RBTree<u64> = RBTree::create(file)?;
     for v in vals() {
       tree.add(v)?;
     }
-    println!("{}", tree);
+    tree.assert_constraint();
+
+    Ok(())
+  }
+
+  #[test]
+  fn test_random_add() -> Result<(), Error> {
+    let file = tempfile()?;
+    let mut tree: RBTree<u64> = RBTree::create(file)?;
+    let mut rng = rand::thread_rng();
+    for _ in 0..10000 {
+      tree.add(rng.gen())?;
+    }
+    tree.assert_constraint();
+    
+    Ok(())
+  }
+
+  #[test]
+  fn test_del() -> Result<(), Error> {
+    let file = tempfile()?;
+    let mut tree: RBTree<u64> = RBTree::create(file)?;
+    for v in vals() {
+      tree.add(v)?;
+    }
+
+    let mut c = 0;
+    for v in vals() {
+      c += 1;
+      tree.del(v)?;
+      if c >= vals().len()/2 {
+        break;
+      }
+    }
+
     tree.assert_constraint();
 
     Ok(())
