@@ -368,64 +368,66 @@ impl<T: Default + Ord + Copy> RBTree<T> {
       Some(p) => p,
     };
     if x == self.mem[p].left {
-      let mut s = self.mem[p].right.unwrap();
+      let s = match self.mem[p].right {
+        None => return self.del_dblack(self.mem[p].parent, Some(p)),
+        Some(s) => s,
+      };
       if self.mem[s].is_red() {
+        self.rotate_left(p);
         self.mem[s].to_black();
         self.mem[p].to_red();
-        self.rotate_left(s);
-        s = self.mem[p].right.unwrap();
-      }
-      let l = self.mem[s].left;
-      let r = self.mem[s].right;
-      if self.is_black(l) && self.is_black(r) {
-        self.mem[s].to_red();
-        if self.mem[p].is_red() {
-          self.mem[p].to_black();
-        } else {
-          self.del_dblack(self.mem[p].parent, Some(p));
-        }
+        self.del_dblack(Some(p), x);
       } else {
-        if self.is_black(r) {
-          self.mem[l.unwrap()].to_black();
+        let l = self.mem[s].left;
+        let r = self.mem[s].right;
+        if self.is_black(l) && self.is_black(r) {
           self.mem[s].to_red();
-          self.rotate_right(s);
-          s = self.mem[p].right.unwrap();
+          if self.mem[p].is_red() {
+            self.mem[p].to_black();
+          } else {
+            self.del_dblack(self.mem[p].parent, Some(p));
+          }
+        } else {
+          if self.is_red(l) {
+            self.mem[l.unwrap()].color = self.mem[p].color;
+            self.rotate_right(s);
+          } else {
+            self.mem[r.unwrap()].color = self.mem[s].color;
+            self.mem[s].color = self.mem[p].color;
+          }
+          self.rotate_left(p);
         }
-        self.mem[s].color = self.mem[p].color;
-        self.mem[p].to_black();
-        let r = self.mem[s].right.unwrap();
-        self.mem[r].to_black();
-        self.rotate_left(p);
       }
     } else {
-      let mut s = self.mem[p].left.unwrap();
+      let s = match self.mem[p].left {
+        None => return self.del_dblack(self.mem[p].parent, Some(p)),
+        Some(s) => s,
+      };
       if self.mem[s].is_red() {
+        self.rotate_right(p);
         self.mem[s].to_black();
         self.mem[p].to_red();
-        self.rotate_right(s);
-        s = self.mem[p].left.unwrap();
-      }
-      let l = self.mem[s].left;
-      let r = self.mem[s].right;
-      if self.is_black(l) && self.is_black(r) {
-        self.mem[s].to_red();
-        if self.mem[p].is_red() {
-          self.mem[p].to_black();
-        } else {
-          self.del_dblack(self.mem[p].parent, Some(p));
-        }
+        self.del_dblack(Some(p), x);
       } else {
-        if self.is_black(l) {
-          self.mem[r.unwrap()].to_black();
+        let l = self.mem[s].left;
+        let r = self.mem[s].right;
+        if self.is_black(l) && self.is_black(r) {
           self.mem[s].to_red();
-          self.rotate_right(s);
-          s = self.mem[p].left.unwrap();
+          if self.mem[p].is_red() {
+            self.mem[p].to_black();
+          } else {
+            self.del_dblack(self.mem[p].parent, Some(p));
+          }
+        } else {
+          if self.is_red(r) {
+            self.mem[r.unwrap()].color = self.mem[p].color;
+            self.rotate_left(s);
+          } else {
+            self.mem[l.unwrap()].color = self.mem[s].color;
+            self.mem[s].color = self.mem[p].color;
+          }
+          self.rotate_right(p);
         }
-        self.mem[s].color = self.mem[p].color;
-        self.mem[p].to_black();
-        let l = self.mem[s].left.unwrap();
-        self.mem[l].to_black();
-        self.rotate_right(p);
       }
     }
   }
